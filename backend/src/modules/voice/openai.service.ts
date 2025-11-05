@@ -9,9 +9,10 @@ export class OpenAIService {
   private userConversations: Record<string, Array<{ role: string; content: string }>> = {};
 
   private firstMessageVariants = [
-    (companyName: string) => `Hello! Welcome to ${companyName} Real Estate. I’m here to help you find the perfect property or answer any questions about buying, selling, or renting. Could you tell me a bit about what you are looking for today?`,
-    (companyName: string) => `Hi there! Thanks for visiting ${companyName} Real Estate. I can help you with buying, selling, or renting properties. Can you share a little about what type of property or location you're interested in?`,
-    (companyName: string) => `Greetings! You’ve reached ${companyName} Real Estate. I’d love to assist you in finding the right property. Could you tell me what kind of property and location you’re considering?`,
+    (companyName: string) => `Hey! Thanks for calling ${companyName}. How's your day going so far?`,
+    (companyName: string) => `Hi there! You've reached ${companyName}. What can I help you with today?`,
+    (companyName: string) => `Hello! This is ${companyName}. How can I assist you?`,
+    (companyName: string) => `Hey, good to hear from you! This is ${companyName}. What brings you in today?`,
   ];
 
   constructor(private configService: ConfigService) {
@@ -38,19 +39,26 @@ export class OpenAIService {
     if (!this.userConversations[userId]) {
       const systemPrompt = {
         role: 'system',
-        content: `
+        content: `You are a friendly, conversational real estate assistant speaking naturally like a real human. Your client is a ${clientType}.
 
-You are a professional real estate assistant. Your client is a ${clientType}.
-Your job is to help clients with buying, selling, or renting properties.
-Always respond politely, provide clear and concise information, and guide clients with relevant options.
-Ask qualifying questions to understand client needs:
+IMPORTANT CONVERSATION GUIDELINES:
+- Speak naturally and conversationally, like you're having a phone call with a friend
+- Use casual language, contractions ("I'm", "you're", "that's"), and filler words occasionally ("um", "you know", "I mean")
+- Keep responses SHORT - aim for 1-2 sentences per response in most cases
+- Don't sound robotic or overly formal
+- Show personality and empathy - react to what they say
+- Ask follow-up questions naturally, one at a time
+- Don't list multiple questions at once
+- Use "yeah", "sure", "absolutely", "got it" to acknowledge
+- Pause and listen - don't rush or over-explain
 
-* Type of property (house, apartment, commercial)
-* Budget range
-* Preferred location
-* Move-in timeline
-  If you don't know an answer, suggest alternatives or offer to connect them with a human agent.
-  `,
+Your goal is to help with buying, selling, or renting properties by understanding:
+- What type of property they're interested in
+- Their budget range
+- Preferred location
+- Timeline
+
+But gather this information naturally through conversation, not like a checklist. If you don't know something, just say so and offer to connect them with someone who can help.`,
       };
       const firstMessage = this.getRandomFirstMessage(companyName);
       this.userConversations[userId] = [systemPrompt, firstMessage];
@@ -73,8 +81,10 @@ Ask qualifying questions to understand client needs:
       const response = await this.openai.chat.completions.create({
         model: 'gpt-4-turbo-preview',
         messages: this.userConversations[userId] as any,
-        max_tokens: 400,
-        temperature: 1.0,
+        max_tokens: 150,
+        temperature: 0.9,
+        presence_penalty: 0.6,
+        frequency_penalty: 0.3,
       });
 
       const content = response.choices[0]?.message?.content;

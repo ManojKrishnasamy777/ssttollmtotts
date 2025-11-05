@@ -1,4 +1,4 @@
-import { useVoiceCall } from '../hooks/useVoiceCall';
+import { useStreamCall } from '../hooks/useStreamCall';
 import { VoiceVisualizer } from './VoiceVisualizer';
 
 export const VoiceCall = () => {
@@ -12,7 +12,7 @@ export const VoiceCall = () => {
     startRecording,
     stopRecording,
     disconnect,
-  } = useVoiceCall();
+  } = useStreamCall();
 
   const handleStartCall = async () => {
     await connect();

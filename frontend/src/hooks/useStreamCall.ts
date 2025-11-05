@@ -1,14 +1,13 @@
 import { useState, useRef, useEffect } from 'react';
-import socketService from '../services/socket.service';
+import streamService from '../services/stream.service';
 
-export const useVoiceCall = () => {
+export const useStreamCall = () => {
   const [isConnected, setIsConnected] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [transcript, setTranscript] = useState('');
   const [aiResponse, setAiResponse] = useState('');
 
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const audioQueueRef = useRef<ArrayBuffer[]>([]);
   const isPlayingRef = useRef(false);
@@ -25,7 +24,9 @@ export const useVoiceCall = () => {
       const audioData = audioQueueRef.current.shift();
       if (audioData && audioContextRef.current) {
         try {
-          const audioBuffer = await audioContextRef.current.decodeAudioData(audioData.slice(0));
+          const audioBuffer = await audioContextRef.current.decodeAudioData(
+            audioData.slice(0)
+          );
           const source = audioContextRef.current.createBufferSource();
           source.buffer = audioBuffer;
           source.connect(audioContextRef.current.destination);
@@ -46,84 +47,70 @@ export const useVoiceCall = () => {
 
   const connect = async () => {
     try {
-      const socket = socketService.connect();
+      console.log('[Hook] Connecting to stream service');
 
-      socket.on('connect', () => {
-        console.log('Connected to server');
-        setIsConnected(true);
+      const userId = await streamService.connect();
+      console.log('[Hook] Connected with userId:', userId);
+
+      streamService.onTranscript((text) => {
+        console.log('[Hook] Transcript received:', text);
+        setTranscript(text);
       });
 
-      socket.on('disconnect', () => {
-        console.log('Disconnected from server');
-        setIsConnected(false);
+      streamService.onAIResponse((text) => {
+        console.log('[Hook] AI response received:', text);
+        setAiResponse(text);
       });
 
-      socketService.onTranscript((data) => {
-        setTranscript(data.text);
-      });
-
-      socketService.onAIResponse((data) => {
-        setAiResponse(data.text);
-      });
-
-      socketService.onAudio((data) => {
+      streamService.onAudio((data) => {
+        console.log('[Hook] Audio received:', data.byteLength, 'bytes');
         audioQueueRef.current.push(data);
         playAudioQueue();
       });
 
-      socketService.onStopAudio(() => {
-        audioQueueRef.current = [];
-        isPlayingRef.current = false;
-        setIsSpeaking(false);
+      streamService.onSpeaking((speaking) => {
+        console.log('[Hook] Speaking status:', speaking);
+        if (speaking) {
+          setIsRecording(true);
+        }
       });
 
-      socketService.onError((error) => {
-        console.error('Socket error:', error);
+      streamService.onError((error) => {
+        console.error('[Hook] Error:', error);
       });
 
       audioContextRef.current = new AudioContext();
+      setIsConnected(true);
     } catch (error) {
-      console.error('Connection error:', error);
+      console.error('[Hook] Connection error:', error);
     }
   };
 
   const startRecording = async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-
-      mediaRecorderRef.current = new MediaRecorder(stream, {
-        mimeType: 'audio/webm',
-      });
-
-      mediaRecorderRef.current.ondataavailable = (event) => {
-        if (event.data.size > 0) {
-          event.data.arrayBuffer().then((buffer) => {
-            socketService.sendAudioData(buffer);
-          });
-        }
-      };
-
-      mediaRecorderRef.current.start(100);
+      console.log('[Hook] Starting recording');
+      await streamService.startRecording();
       setIsRecording(true);
     } catch (error) {
-      console.error('Error starting recording:', error);
+      console.error('[Hook] Error starting recording:', error);
     }
   };
 
   const stopRecording = () => {
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-      mediaRecorderRef.current.stop();
-      mediaRecorderRef.current.stream.getTracks().forEach(track => track.stop());
-      setIsRecording(false);
-    }
+    console.log('[Hook] Stopping recording');
+    streamService.stopRecording();
+    setIsRecording(false);
   };
 
-  const disconnect = () => {
+  const disconnect = async () => {
+    console.log('[Hook] Disconnecting');
     stopRecording();
-    socketService.disconnect();
+    await streamService.disconnect();
     setIsConnected(false);
+
     if (audioContextRef.current) {
-      audioContextRef.current.close();
+      await audioContextRef.current.close();
+      audioContextRef.current = null;
     }
   };
 

@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
-import { VoiceGateway } from './voice.gateway';
+import { StreamController } from './stream.controller';
+import { StreamService } from './stream.service';
 import { DeepgramService } from './deepgram.service';
 import { SarvamService } from './sarvam.service';
 import { STTFactoryService } from './stt-factory.service';
@@ -9,8 +10,9 @@ import { ConversationModule } from '../conversation/conversation.module';
 
 @Module({
   imports: [ConversationModule],
+  controllers: [StreamController],
   providers: [
-    VoiceGateway,
+    StreamService,
     DeepgramService,
     SarvamService,
     STTFactoryService,
