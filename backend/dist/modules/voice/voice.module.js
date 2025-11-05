@@ -10,6 +10,8 @@ exports.VoiceModule = void 0;
 const common_1 = require("@nestjs/common");
 const voice_gateway_1 = require("./voice.gateway");
 const deepgram_service_1 = require("./deepgram.service");
+const sarvam_service_1 = require("./sarvam.service");
+const stt_factory_service_1 = require("./stt-factory.service");
 const openai_service_1 = require("./openai.service");
 const elevenlabs_service_1 = require("./elevenlabs.service");
 const conversation_module_1 = require("../conversation/conversation.module");
@@ -19,7 +21,14 @@ exports.VoiceModule = VoiceModule;
 exports.VoiceModule = VoiceModule = __decorate([
     (0, common_1.Module)({
         imports: [conversation_module_1.ConversationModule],
-        providers: [voice_gateway_1.VoiceGateway, deepgram_service_1.DeepgramService, openai_service_1.OpenAIService, elevenlabs_service_1.ElevenLabsService],
+        providers: [
+            voice_gateway_1.VoiceGateway,
+            deepgram_service_1.DeepgramService,
+            sarvam_service_1.SarvamService,
+            stt_factory_service_1.STTFactoryService,
+            openai_service_1.OpenAIService,
+            elevenlabs_service_1.ElevenLabsService,
+        ],
     })
 ], VoiceModule);
 //# sourceMappingURL=voice.module.js.map

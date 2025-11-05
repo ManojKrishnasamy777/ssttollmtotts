@@ -1,5 +1,6 @@
 import { ConfigService } from '@nestjs/config';
-export declare class DeepgramService {
+import { STTService } from './stt.interface';
+export declare class DeepgramService implements STTService {
     private configService;
     private deepgram;
     constructor(configService: ConfigService);

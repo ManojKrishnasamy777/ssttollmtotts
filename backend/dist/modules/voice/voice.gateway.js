@@ -15,13 +15,13 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.VoiceGateway = void 0;
 const websockets_1 = require("@nestjs/websockets");
 const socket_io_1 = require("socket.io");
-const deepgram_service_1 = require("./deepgram.service");
+const stt_factory_service_1 = require("./stt-factory.service");
 const openai_service_1 = require("./openai.service");
 const elevenlabs_service_1 = require("./elevenlabs.service");
 const conversation_service_1 = require("../conversation/conversation.service");
 let VoiceGateway = class VoiceGateway {
-    constructor(deepgramService, openaiService, elevenlabsService, conversationService) {
-        this.deepgramService = deepgramService;
+    constructor(sttFactory, openaiService, elevenlabsService, conversationService) {
+        this.sttFactory = sttFactory;
         this.openaiService = openaiService;
         this.elevenlabsService = elevenlabsService;
         this.conversationService = conversationService;
@@ -33,8 +33,9 @@ let VoiceGateway = class VoiceGateway {
             const conversationId = await this.conversationService.createConversation(client.id);
             console.log(`[WS] Created conversation: ${conversationId} for client: ${client.id}`);
             const audioQueue = [];
-            const deepgramConnection = await this.deepgramService.createLiveTranscription(async (transcript) => {
-                console.log(`[Deepgram] Transcript received: "${transcript}"`);
+            const sttService = this.sttFactory.getSTTService();
+            const sttConnection = await sttService.createLiveTranscription(async (transcript) => {
+                console.log(`[STT] Transcript received: "${transcript}"`);
                 client.emit('transcript', { text: transcript });
                 await this.conversationService.addMessage(conversationId, 'user', transcript);
                 console.log(`[Conversation] User message saved: "${transcript}"`);
@@ -49,17 +50,20 @@ let VoiceGateway = class VoiceGateway {
                 console.log(`[ElevenLabs] Audio buffer generated: ${audioBuffer.length} bytes`);
                 client.emit('audio', audioBuffer);
             }, (error) => {
-                console.error('[Deepgram] Error:', error);
+                console.error('[STT] Error:', error);
                 client.emit('error', { message: 'Speech recognition error', details: error });
             });
-            deepgramConnection.on('open', () => {
-                console.log(`[Deepgram] Connection opened for client: ${client.id}, flushing queued audio...`);
-                audioQueue.forEach((chunk) => this.deepgramService.sendAudio(deepgramConnection, chunk));
-                audioQueue.length = 0;
-            });
-            console.log(`[WS] Deepgram connection established for client: ${client.id}`);
+            if (sttConnection.on) {
+                sttConnection.on('open', () => {
+                    console.log(`[STT] Connection opened for client: ${client.id}, flushing queued audio...`);
+                    audioQueue.forEach((chunk) => sttService.sendAudio(sttConnection, chunk));
+                    audioQueue.length = 0;
+                });
+            }
+            console.log(`[WS] STT connection established for client: ${client.id}`);
             this.activeConnections.set(client.id, {
-                deepgramConnection,
+                sttConnection,
+                sttService,
                 conversationId,
                 audioQueue,
             });
@@ -73,8 +77,8 @@ let VoiceGateway = class VoiceGateway {
         console.log(`[WS] Client disconnected: ${client.id}`);
         const connection = this.activeConnections.get(client.id);
         if (connection) {
-            console.log(`[WS] Closing Deepgram connection for client: ${client.id}`);
-            this.deepgramService.closeConnection(connection.deepgramConnection);
+            console.log(`[WS] Closing STT connection for client: ${client.id}`);
+            connection.sttService.closeConnection(connection.sttConnection);
             console.log(`[Conversation] Ending conversation: ${connection.conversationId}`);
             this.conversationService.endConversation(connection.conversationId);
             this.activeConnections.delete(client.id);
@@ -84,18 +88,21 @@ let VoiceGateway = class VoiceGateway {
     handleAudioData(data, client) {
         const connection = this.activeConnections.get(client.id);
         const audioBuffer = Buffer.from(data);
-        if (connection && connection.deepgramConnection) {
-            if (connection.deepgramConnection.getReadyState() === 1) {
+        if (connection && connection.sttConnection) {
+            const isReady = connection.sttConnection.getReadyState
+                ? connection.sttConnection.getReadyState() === 1
+                : connection.sttConnection.readyState === 1;
+            if (isReady) {
                 console.log(`[WS] Sending audio buffer of length: ${audioBuffer.length} for client: ${client.id}`);
-                this.deepgramService.sendAudio(connection.deepgramConnection, audioBuffer);
+                connection.sttService.sendAudio(connection.sttConnection, audioBuffer);
             }
             else {
-                console.log(`[WS] Deepgram not ready, queueing audio chunk of size: ${audioBuffer.length} for client: ${client.id}`);
+                console.log(`[WS] STT not ready, queueing audio chunk of size: ${audioBuffer.length} for client: ${client.id}`);
                 connection.audioQueue.push(audioBuffer);
             }
         }
         else {
-            console.warn(`[WS] No active Deepgram connection for client: ${client.id}`);
+            console.warn(`[WS] No active STT connection for client: ${client.id}`);
         }
     }
     handleStopSpeaking(client) {
@@ -129,7 +136,7 @@ exports.VoiceGateway = VoiceGateway = __decorate([
             origin: '*',
         },
     }),
-    __metadata("design:paramtypes", [deepgram_service_1.DeepgramService,
+    __metadata("design:paramtypes", [stt_factory_service_1.STTFactoryService,
         openai_service_1.OpenAIService,
         elevenlabs_service_1.ElevenLabsService,
         conversation_service_1.ConversationService])
