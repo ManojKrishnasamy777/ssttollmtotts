@@ -16,9 +16,12 @@ const sdk_1 = require("@deepgram/sdk");
 let DeepgramService = class DeepgramService {
     constructor(configService) {
         this.configService = configService;
-        this.deepgram = (0, sdk_1.createClient)(this.configService.get('DEEPGRAM_API_KEY'));
+        const apiKey = this.configService.get('DEEPGRAM_API_KEY');
+        console.log('Initializing Deepgram client with API key:', apiKey ? 'FOUND' : 'MISSING');
+        this.deepgram = (0, sdk_1.createClient)(apiKey);
     }
     async createLiveTranscription(onTranscript, onError) {
+        console.log('Creating live transcription connection...');
         const connection = this.deepgram.listen.live({
             model: 'nova-2',
             language: 'en-US',
@@ -29,13 +32,18 @@ let DeepgramService = class DeepgramService {
             console.log('Deepgram connection opened');
         });
         connection.on(sdk_1.LiveTranscriptionEvents.Transcript, (data) => {
+            console.log('Received transcript event:', JSON.stringify(data));
             const transcript = data.channel?.alternatives?.[0]?.transcript;
             if (transcript && transcript.trim().length > 0) {
+                console.log('Transcribed text:', transcript);
                 onTranscript(transcript);
+            }
+            else {
+                console.log('Transcript empty or undefined');
             }
         });
         connection.on(sdk_1.LiveTranscriptionEvents.Error, (error) => {
-            console.error('Deepgram error:', error);
+            console.error('Deepgram error event:', error);
             onError(error);
         });
         connection.on(sdk_1.LiveTranscriptionEvents.Close, () => {
@@ -44,14 +52,26 @@ let DeepgramService = class DeepgramService {
         return connection;
     }
     sendAudio(connection, audioData) {
-        if (connection && connection.getReadyState() === 1) {
+        if (!connection) {
+            console.warn('No connection to send audio');
+            return;
+        }
+        console.log('Connection ready state:', connection.getReadyState());
+        if (connection.getReadyState() === 1) {
+            console.log('Sending audio buffer of length:', audioData.length);
             connection.send(audioData);
+        }
+        else {
+            console.warn('Connection not open, cannot send audio');
         }
     }
     closeConnection(connection) {
-        if (connection) {
-            connection.finish();
+        if (!connection) {
+            console.warn('No connection to close');
+            return;
         }
+        console.log('Closing Deepgram connection...');
+        connection.finish();
     }
 };
 exports.DeepgramService = DeepgramService;

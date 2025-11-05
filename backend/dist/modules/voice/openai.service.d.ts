@@ -6,5 +6,5 @@ export declare class OpenAIService {
     generateResponse(messages: Array<{
         role: string;
         content: string;
-    }>): Promise<string>;
+    }>, clientType?: 'buyer' | 'seller' | 'renter'): Promise<string>;
 }

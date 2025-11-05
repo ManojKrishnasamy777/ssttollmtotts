@@ -21,8 +21,10 @@ let ElevenLabsService = class ElevenLabsService {
         this.configService = configService;
         this.apiKey = this.configService.get('ELEVENLABS_API_KEY');
         this.voiceId = this.configService.get('ELEVENLABS_VOICE_ID');
+        console.log('Initializing ElevenLabsService. API Key:', this.apiKey ? 'FOUND' : 'MISSING', 'Voice ID:', this.voiceId || 'MISSING');
     }
     async textToSpeech(text) {
+        console.log('Sending text to ElevenLabs TTS:', text);
         try {
             const response = await axios_1.default.post(`https://api.elevenlabs.io/v1/text-to-speech/${this.voiceId}`, {
                 text,
@@ -33,16 +35,26 @@ let ElevenLabsService = class ElevenLabsService {
                 },
             }, {
                 headers: {
-                    'Accept': 'audio/mpeg',
+                    Accept: 'audio/mpeg',
                     'xi-api-key': this.apiKey,
                     'Content-Type': 'application/json',
                 },
                 responseType: 'arraybuffer',
             });
+            console.log('ElevenLabs TTS request successful. Response size:', response.data.byteLength, 'bytes');
             return Buffer.from(response.data);
         }
         catch (error) {
-            console.error('ElevenLabs error:', error);
+            if (axios_1.default.isAxiosError(error)) {
+                console.error('ElevenLabs Axios error:', {
+                    message: error.message,
+                    status: error.response?.status,
+                    data: error.response?.data,
+                });
+            }
+            else {
+                console.error('ElevenLabs unknown error:', error);
+            }
             throw error;
         }
     }

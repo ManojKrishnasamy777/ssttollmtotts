@@ -28,45 +28,78 @@ let VoiceGateway = class VoiceGateway {
         this.activeConnections = new Map();
     }
     async handleConnection(client) {
-        console.log(`Client connected: ${client.id}`);
-        const conversationId = await this.conversationService.createConversation(client.id);
-        const deepgramConnection = await this.deepgramService.createLiveTranscription(async (transcript) => {
-            console.log('Transcript:', transcript);
-            client.emit('transcript', { text: transcript });
-            await this.conversationService.addMessage(conversationId, 'user', transcript);
-            const messages = await this.conversationService.getConversationHistory(conversationId);
-            const aiResponse = await this.openaiService.generateResponse(messages);
-            console.log('AI Response:', aiResponse);
-            await this.conversationService.addMessage(conversationId, 'assistant', aiResponse);
-            client.emit('ai-response', { text: aiResponse });
-            const audioBuffer = await this.elevenlabsService.textToSpeech(aiResponse);
-            client.emit('audio', audioBuffer);
-        }, (error) => {
-            console.error('Deepgram error:', error);
-            client.emit('error', { message: 'Speech recognition error' });
-        });
-        this.activeConnections.set(client.id, {
-            deepgramConnection,
-            conversationId,
-        });
+        console.log(`[WS] Client connected: ${client.id}`);
+        try {
+            const conversationId = await this.conversationService.createConversation(client.id);
+            console.log(`[WS] Created conversation: ${conversationId} for client: ${client.id}`);
+            const audioQueue = [];
+            const deepgramConnection = await this.deepgramService.createLiveTranscription(async (transcript) => {
+                console.log(`[Deepgram] Transcript received: "${transcript}"`);
+                client.emit('transcript', { text: transcript });
+                await this.conversationService.addMessage(conversationId, 'user', transcript);
+                console.log(`[Conversation] User message saved: "${transcript}"`);
+                const messages = await this.conversationService.getConversationHistory(conversationId);
+                console.log('[Conversation] Full conversation history:', messages);
+                const aiResponse = await this.openaiService.generateResponse(messages);
+                console.log(`[OpenAI] Response generated: "${aiResponse}"`);
+                await this.conversationService.addMessage(conversationId, 'assistant', aiResponse);
+                console.log('[Conversation] Assistant message saved');
+                client.emit('ai-response', { text: aiResponse });
+                const audioBuffer = await this.elevenlabsService.textToSpeech(aiResponse);
+                console.log(`[ElevenLabs] Audio buffer generated: ${audioBuffer.length} bytes`);
+                client.emit('audio', audioBuffer);
+            }, (error) => {
+                console.error('[Deepgram] Error:', error);
+                client.emit('error', { message: 'Speech recognition error', details: error });
+            });
+            deepgramConnection.on('open', () => {
+                console.log(`[Deepgram] Connection opened for client: ${client.id}, flushing queued audio...`);
+                audioQueue.forEach((chunk) => this.deepgramService.sendAudio(deepgramConnection, chunk));
+                audioQueue.length = 0;
+            });
+            console.log(`[WS] Deepgram connection established for client: ${client.id}`);
+            this.activeConnections.set(client.id, {
+                deepgramConnection,
+                conversationId,
+                audioQueue,
+            });
+        }
+        catch (err) {
+            console.error(`[WS] Error during connection setup for client ${client.id}:`, err);
+            client.emit('error', { message: 'Connection setup failed', details: err });
+        }
     }
     handleDisconnect(client) {
-        console.log(`Client disconnected: ${client.id}`);
+        console.log(`[WS] Client disconnected: ${client.id}`);
         const connection = this.activeConnections.get(client.id);
         if (connection) {
+            console.log(`[WS] Closing Deepgram connection for client: ${client.id}`);
             this.deepgramService.closeConnection(connection.deepgramConnection);
+            console.log(`[Conversation] Ending conversation: ${connection.conversationId}`);
             this.conversationService.endConversation(connection.conversationId);
             this.activeConnections.delete(client.id);
+            console.log(`[WS] Connection removed for client: ${client.id}`);
         }
     }
     handleAudioData(data, client) {
         const connection = this.activeConnections.get(client.id);
+        const audioBuffer = Buffer.from(data);
         if (connection && connection.deepgramConnection) {
-            const audioBuffer = Buffer.from(data);
-            this.deepgramService.sendAudio(connection.deepgramConnection, audioBuffer);
+            if (connection.deepgramConnection.getReadyState() === 1) {
+                console.log(`[WS] Sending audio buffer of length: ${audioBuffer.length} for client: ${client.id}`);
+                this.deepgramService.sendAudio(connection.deepgramConnection, audioBuffer);
+            }
+            else {
+                console.log(`[WS] Deepgram not ready, queueing audio chunk of size: ${audioBuffer.length} for client: ${client.id}`);
+                connection.audioQueue.push(audioBuffer);
+            }
+        }
+        else {
+            console.warn(`[WS] No active Deepgram connection for client: ${client.id}`);
         }
     }
     handleStopSpeaking(client) {
+        console.log(`[WS] Stop speaking requested by client: ${client.id}`);
         client.emit('stop-audio');
     }
 };
