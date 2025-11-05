@@ -28,10 +28,13 @@ let ElevenLabsService = class ElevenLabsService {
         try {
             const response = await axios_1.default.post(`https://api.elevenlabs.io/v1/text-to-speech/${this.voiceId}`, {
                 text,
-                model_id: 'eleven_monolingual_v1',
+                model_id: 'eleven_turbo_v2',
                 voice_settings: {
-                    stability: 0.5,
-                    similarity_boost: 0.75,
+                    stability: 0.35,
+                    similarity_boost: 0.85,
+                    style: 0.4,
+                    use_speaker_boost: true,
+                    stochasticity: 0.2
                 },
             }, {
                 headers: {

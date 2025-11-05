@@ -22,12 +22,25 @@ export class DeepgramService implements STTService {
     const connection = this.deepgram.listen.live({
       model: 'nova-2',
       language: 'en-US',
+      encoding: 'linear16',
+      sample_rate: 16000,
       smart_format: true,
       interim_results: false,
     });
 
+    let keepAliveInterval: NodeJS.Timeout | null = null;
+
     connection.on(LiveTranscriptionEvents.Open, () => {
       console.log('Deepgram connection opened');
+
+      // Send periodic silence (keep alive)
+      keepAliveInterval = setInterval(() => {
+        if (connection && connection.getReadyState() === 1) {
+          const silence = Buffer.alloc(3200); // ~100ms of silence @ 16kHz PCM16
+          connection.send(silence);
+          // console.log('Sent keep-alive silence');
+        }
+      }, 1000);
     });
 
     connection.on(LiveTranscriptionEvents.Transcript, (data) => {
@@ -42,12 +55,16 @@ export class DeepgramService implements STTService {
     });
 
     connection.on(LiveTranscriptionEvents.Error, (error) => {
-      console.error('Deepgram error event:', error);
+      console.error('Deepgram error event:', JSON.stringify(error, null, 2));
       onError(error);
     });
 
     connection.on(LiveTranscriptionEvents.Close, () => {
       console.log('Deepgram connection closed');
+      if (keepAliveInterval) {
+        clearInterval(keepAliveInterval);
+        keepAliveInterval = null;
+      }
     });
 
     return connection;
@@ -59,8 +76,10 @@ export class DeepgramService implements STTService {
       return;
     }
 
-    console.log('Connection ready state:', connection.getReadyState());
-    if (connection.getReadyState() === 1) {
+    const state = connection.getReadyState();
+    console.log('Connection ready state:', state);
+
+    if (state === 1) {
       console.log('Sending audio buffer of length:', audioData.length);
       connection.send(audioData);
     } else {

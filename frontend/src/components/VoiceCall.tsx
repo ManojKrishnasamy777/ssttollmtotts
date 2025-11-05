@@ -29,7 +29,7 @@ export const VoiceCall = () => {
   return (
     <div style={styles.container}>
       <div style={styles.card}>
-        <h1 style={styles.title}>AI Voice Assistant</h1>
+        <h1 style={styles.title}>Sharyx Voice AI</h1>
 
         <div style={styles.visualizerContainer}>
           <VoiceVisualizer isActive={isRecording || isSpeaking} />
