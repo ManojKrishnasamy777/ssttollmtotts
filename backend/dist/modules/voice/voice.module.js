@@ -8,7 +8,8 @@ var __decorate = (this && this.__decorate) || function (decorators, target, key,
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.VoiceModule = void 0;
 const common_1 = require("@nestjs/common");
-const voice_gateway_1 = require("./voice.gateway");
+const stream_controller_1 = require("./stream.controller");
+const stream_service_1 = require("./stream.service");
 const deepgram_service_1 = require("./deepgram.service");
 const sarvam_service_1 = require("./sarvam.service");
 const stt_factory_service_1 = require("./stt-factory.service");
@@ -21,8 +22,9 @@ exports.VoiceModule = VoiceModule;
 exports.VoiceModule = VoiceModule = __decorate([
     (0, common_1.Module)({
         imports: [conversation_module_1.ConversationModule],
+        controllers: [stream_controller_1.StreamController],
         providers: [
-            voice_gateway_1.VoiceGateway,
+            stream_service_1.StreamService,
             deepgram_service_1.DeepgramService,
             sarvam_service_1.SarvamService,
             stt_factory_service_1.STTFactoryService,
