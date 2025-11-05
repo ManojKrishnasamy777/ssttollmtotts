@@ -9,7 +9,8 @@
 
 2. **API Keys**
    You need to obtain API keys from:
-   - **Deepgram**: https://deepgram.com (for Speech-to-Text)
+   - **Deepgram**: https://deepgram.com (for Speech-to-Text - default)
+   - **Sarvam AI**: https://sarvam.ai (for Speech-to-Text - alternative)
    - **OpenAI**: https://platform.openai.com (for LLM)
    - **ElevenLabs**: https://elevenlabs.io (for Text-to-Speech)
 
@@ -25,22 +26,38 @@
 
 2. **Configure Environment Variables**
 
-   Edit `backend/.env` and add your API keys:
+   Create a `backend/.env` file (you can copy from `backend/.env.example`):
    ```
-   DEEPGRAM_API_KEY=your_deepgram_api_key
-   OPENAI_API_KEY=your_openai_api_key
-   ELEVENLABS_API_KEY=your_elevenlabs_api_key
-   ELEVENLABS_VOICE_ID=21m00Tcm4TlvDq8ikWAM
-   ```
-
-   Update database credentials if needed:
-   ```
+   # Database Configuration
    DATABASE_HOST=localhost
    DATABASE_PORT=5432
    DATABASE_USER=postgres
    DATABASE_PASSWORD=postgres
    DATABASE_NAME=voice_assistant
+
+   # Speech-to-Text Provider (choose one: 'deepgram' or 'sarvam')
+   STT_PROVIDER=deepgram
+
+   # Deepgram API (if using Deepgram)
+   DEEPGRAM_API_KEY=your_deepgram_api_key
+
+   # Sarvam AI API (if using Sarvam)
+   SARVAM_API_KEY=your_sarvam_api_key
+
+   # OpenAI API
+   OPENAI_API_KEY=your_openai_api_key
+
+   # ElevenLabs API
+   ELEVENLABS_API_KEY=your_elevenlabs_api_key
+   ELEVENLABS_VOICE_ID=21m00Tcm4TlvDq8ikWAM
+
+   # Company Name (optional)
+   COMPANY_NAME=Our Company
    ```
+
+   **To switch between STT providers:**
+   - Set `STT_PROVIDER=deepgram` to use Deepgram
+   - Set `STT_PROVIDER=sarvam` to use Sarvam AI
 
 ## Running the Application
 
@@ -77,7 +94,7 @@
 
 - **Backend (NestJS)**
   - WebSocket gateway for real-time communication
-  - Deepgram integration for speech-to-text
+  - Switchable STT providers (Deepgram or Sarvam AI)
   - OpenAI integration for AI responses
   - ElevenLabs integration for text-to-speech
   - PostgreSQL for conversation storage

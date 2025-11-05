@@ -8,7 +8,7 @@ import {
   ConnectedSocket,
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
-import { DeepgramService } from './deepgram.service';
+import { STTFactoryService } from './stt-factory.service';
 import { OpenAIService } from './openai.service';
 import { ElevenLabsService } from './elevenlabs.service';
 import { ConversationService } from '../conversation/conversation.service';
@@ -25,7 +25,7 @@ export class VoiceGateway implements OnGatewayConnection, OnGatewayDisconnect {
   private activeConnections = new Map<string, any>();
 
   constructor(
-    private deepgramService: DeepgramService,
+    private sttFactory: STTFactoryService,
     private openaiService: OpenAIService,
     private elevenlabsService: ElevenLabsService,
     private conversationService: ConversationService,
@@ -38,11 +38,12 @@ export class VoiceGateway implements OnGatewayConnection, OnGatewayDisconnect {
       const conversationId = await this.conversationService.createConversation(client.id);
       console.log(`[WS] Created conversation: ${conversationId} for client: ${client.id}`);
 
-      const audioQueue: Buffer[] = []; // queue audio until Deepgram is ready
+      const audioQueue: Buffer[] = [];
+      const sttService = this.sttFactory.getSTTService();
 
-      const deepgramConnection = await this.deepgramService.createLiveTranscription(
+      const sttConnection = await sttService.createLiveTranscription(
         async (transcript) => {
-          console.log(`[Deepgram] Transcript received: "${transcript}"`);
+          console.log(`[STT] Transcript received: "${transcript}"`);
           client.emit('transcript', { text: transcript });
 
           await this.conversationService.addMessage(conversationId, 'user', transcript);
@@ -65,21 +66,24 @@ export class VoiceGateway implements OnGatewayConnection, OnGatewayDisconnect {
           client.emit('audio', audioBuffer);
         },
         (error) => {
-          console.error('[Deepgram] Error:', error);
+          console.error('[STT] Error:', error);
           client.emit('error', { message: 'Speech recognition error', details: error });
         },
       );
 
-      deepgramConnection.on('open', () => {
-        console.log(`[Deepgram] Connection opened for client: ${client.id}, flushing queued audio...`);
-        audioQueue.forEach((chunk) => this.deepgramService.sendAudio(deepgramConnection, chunk));
-        audioQueue.length = 0;
-      });
+      if (sttConnection.on) {
+        sttConnection.on('open', () => {
+          console.log(`[STT] Connection opened for client: ${client.id}, flushing queued audio...`);
+          audioQueue.forEach((chunk) => sttService.sendAudio(sttConnection, chunk));
+          audioQueue.length = 0;
+        });
+      }
 
-      console.log(`[WS] Deepgram connection established for client: ${client.id}`);
+      console.log(`[WS] STT connection established for client: ${client.id}`);
 
       this.activeConnections.set(client.id, {
-        deepgramConnection,
+        sttConnection,
+        sttService,
         conversationId,
         audioQueue,
       });
@@ -94,8 +98,8 @@ export class VoiceGateway implements OnGatewayConnection, OnGatewayDisconnect {
     const connection = this.activeConnections.get(client.id);
 
     if (connection) {
-      console.log(`[WS] Closing Deepgram connection for client: ${client.id}`);
-      this.deepgramService.closeConnection(connection.deepgramConnection);
+      console.log(`[WS] Closing STT connection for client: ${client.id}`);
+      connection.sttService.closeConnection(connection.sttConnection);
 
       console.log(`[Conversation] Ending conversation: ${connection.conversationId}`);
       this.conversationService.endConversation(connection.conversationId);
@@ -110,16 +114,20 @@ export class VoiceGateway implements OnGatewayConnection, OnGatewayDisconnect {
     const connection = this.activeConnections.get(client.id);
     const audioBuffer = Buffer.from(data);
 
-    if (connection && connection.deepgramConnection) {
-      if (connection.deepgramConnection.getReadyState() === 1) {
+    if (connection && connection.sttConnection) {
+      const isReady = connection.sttConnection.getReadyState
+        ? connection.sttConnection.getReadyState() === 1
+        : connection.sttConnection.readyState === 1;
+
+      if (isReady) {
         console.log(`[WS] Sending audio buffer of length: ${audioBuffer.length} for client: ${client.id}`);
-        this.deepgramService.sendAudio(connection.deepgramConnection, audioBuffer);
+        connection.sttService.sendAudio(connection.sttConnection, audioBuffer);
       } else {
-        console.log(`[WS] Deepgram not ready, queueing audio chunk of size: ${audioBuffer.length} for client: ${client.id}`);
+        console.log(`[WS] STT not ready, queueing audio chunk of size: ${audioBuffer.length} for client: ${client.id}`);
         connection.audioQueue.push(audioBuffer);
       }
     } else {
-      console.warn(`[WS] No active Deepgram connection for client: ${client.id}`);
+      console.warn(`[WS] No active STT connection for client: ${client.id}`);
     }
   }
 

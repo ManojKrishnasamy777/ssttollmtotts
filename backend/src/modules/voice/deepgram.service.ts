@@ -1,9 +1,10 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createClient, LiveTranscriptionEvents } from '@deepgram/sdk';
+import { STTService } from './stt.interface';
 
 @Injectable()
-export class DeepgramService {
+export class DeepgramService implements STTService {
   private deepgram;
 
   constructor(private configService: ConfigService) {
