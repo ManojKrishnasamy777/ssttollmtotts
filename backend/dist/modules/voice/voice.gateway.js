@@ -41,7 +41,8 @@ let VoiceGateway = class VoiceGateway {
                 console.log(`[Conversation] User message saved: "${transcript}"`);
                 const messages = await this.conversationService.getConversationHistory(conversationId);
                 console.log('[Conversation] Full conversation history:', messages);
-                const aiResponse = await this.openaiService.generateResponse(messages);
+                const userId = 'user123';
+                const aiResponse = await this.openaiService.generateResponse(userId, messages);
                 console.log(`[OpenAI] Response generated: "${aiResponse}"`);
                 await this.conversationService.addMessage(conversationId, 'assistant', aiResponse);
                 console.log('[Conversation] Assistant message saved');

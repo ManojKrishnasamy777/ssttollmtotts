@@ -2,8 +2,11 @@ import { ConfigService } from '@nestjs/config';
 export declare class OpenAIService {
     private configService;
     private openai;
+    private userConversations;
+    private firstMessageVariants;
     constructor(configService: ConfigService);
-    generateResponse(messages: Array<{
+    private getRandomFirstMessage;
+    generateResponse(userId: string, messages?: Array<{
         role: string;
         content: string;
     }>, clientType?: 'buyer' | 'seller' | 'renter'): Promise<string>;

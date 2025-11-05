@@ -1,119 +1,85 @@
 "use strict";
-var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    var desc = Object.getOwnPropertyDescriptor(m, k);
-    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
-      desc = { enumerable: true, get: function() { return m[k]; } };
-    }
-    Object.defineProperty(o, k2, desc);
-}) : (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    o[k2] = m[k];
-}));
-var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
-    Object.defineProperty(o, "default", { enumerable: true, value: v });
-}) : function(o, v) {
-    o["default"] = v;
-});
 var __decorate = (this && this.__decorate) || function (decorators, target, key, desc) {
     var c = arguments.length, r = c < 3 ? target : desc === null ? desc = Object.getOwnPropertyDescriptor(target, key) : desc, d;
     if (typeof Reflect === "object" && typeof Reflect.decorate === "function") r = Reflect.decorate(decorators, target, key, desc);
     else for (var i = decorators.length - 1; i >= 0; i--) if (d = decorators[i]) r = (c < 3 ? d(r) : c > 3 ? d(target, key, r) : d(target, key)) || r;
     return c > 3 && r && Object.defineProperty(target, key, r), r;
 };
-var __importStar = (this && this.__importStar) || (function () {
-    var ownKeys = function(o) {
-        ownKeys = Object.getOwnPropertyNames || function (o) {
-            var ar = [];
-            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
-            return ar;
-        };
-        return ownKeys(o);
-    };
-    return function (mod) {
-        if (mod && mod.__esModule) return mod;
-        var result = {};
-        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
-        __setModuleDefault(result, mod);
-        return result;
-    };
-})();
 var __metadata = (this && this.__metadata) || function (k, v) {
     if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
+};
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.SarvamService = void 0;
 const common_1 = require("@nestjs/common");
 const config_1 = require("@nestjs/config");
+const ws_1 = __importDefault(require("ws"));
 let SarvamService = class SarvamService {
     constructor(configService) {
         this.configService = configService;
-        this.wsUrl = 'wss://api.sarvam.ai/speech-to-text-translate';
         this.apiKey = this.configService.get('SARVAM_API_KEY');
-        console.log('Initializing Sarvam client with API key:', this.apiKey ? 'FOUND' : 'MISSING');
+        this.endpoint = this.configService.get('SARVAM_STREAM_URL')
+            || 'wss://streaming.sarvam.ai/speech-to-text/stream';
+        if (!this.apiKey) {
+            console.warn('Sarvam API key missing');
+        }
     }
     async createLiveTranscription(onTranscript, onError) {
-        console.log('Creating Sarvam live transcription connection...');
-        const WebSocket = (await Promise.resolve().then(() => __importStar(require('ws')))).default;
-        const ws = new WebSocket(this.wsUrl, {
-            headers: {
-                'api-subscription-key': this.apiKey,
-            },
+        console.log('Connecting to Sarvam streaming endpoint…');
+        const connection = new ws_1.default(this.endpoint, {
+            headers: { "api-subscription-key": this.apiKey }
         });
-        ws.on('open', () => {
-            console.log('Sarvam WebSocket connection opened');
-            const config = {
-                language_code: 'en-IN',
-                model: 'saarika:v1',
-                format: 'pcm',
-                sample_rate: 16000,
+        connection.on('open', () => {
+            console.log('Sarvam WebSocket open');
+            const configMsg = {
+                type: 'config',
+                data: {
+                    model: 'saarika:v2.5',
+                    language_code: 'en‑IN',
+                    interim_results: false,
+                }
             };
-            ws.send(JSON.stringify(config));
+            connection.send(JSON.stringify(configMsg));
         });
-        ws.on('message', (data) => {
+        connection.on('message', (msgRaw) => {
             try {
-                const response = JSON.parse(data.toString());
-                console.log('Received Sarvam message:', response);
-                if (response.type === 'transcript' && response.text) {
-                    const transcript = response.text.trim();
-                    if (transcript.length > 0) {
-                        console.log('Sarvam transcribed text:', transcript);
-                        onTranscript(transcript);
+                const msg = JSON.parse(msgRaw.toString());
+                if (msg.type === 'transcript' && msg.data?.text) {
+                    const text = msg.data.text.trim();
+                    if (text.length > 0) {
+                        console.log('Transcribed:', text);
+                        onTranscript(text);
                     }
                 }
             }
-            catch (error) {
-                console.error('Error parsing Sarvam message:', error);
+            catch (err) {
+                console.error('Parsing Sarvam message error', err);
             }
         });
-        ws.on('error', (error) => {
-            console.error('Sarvam WebSocket error:', error);
-            onError(error);
+        connection.on('error', (err) => {
+            console.error('Sarvam WebSocket error', err);
+            onError(err);
         });
-        ws.on('close', () => {
-            console.log('Sarvam WebSocket connection closed');
+        connection.on('close', (code, reason) => {
+            console.log(`Sarvam connection closed ${code} ${reason}`);
         });
-        return ws;
+        return connection;
     }
     sendAudio(connection, audioData) {
-        if (!connection) {
-            console.warn('No Sarvam connection to send audio');
+        if (!connection || connection.readyState !== ws_1.default.OPEN) {
+            console.warn('Sarvam connection not open');
             return;
         }
-        if (connection.readyState === 1) {
-            console.log('Sending audio buffer to Sarvam, length:', audioData.length);
-            connection.send(audioData);
-        }
-        else {
-            console.warn('Sarvam connection not open, cannot send audio');
-        }
+        console.log('Sending audio buffer length:', audioData.length);
+        connection.send(audioData);
     }
     closeConnection(connection) {
         if (!connection) {
-            console.warn('No Sarvam connection to close');
             return;
         }
-        console.log('Closing Sarvam connection...');
+        console.log('Closing Sarvam connection');
         connection.close();
     }
 };

@@ -1,10 +1,12 @@
 import { ConfigService } from '@nestjs/config';
-export declare class SarvamService {
+import { STTService } from './stt.interface';
+import WebSocket from 'ws';
+export declare class SarvamService implements STTService {
     private configService;
     private apiKey;
-    private wsUrl;
+    private endpoint;
     constructor(configService: ConfigService);
-    createLiveTranscription(onTranscript: (text: string) => void, onError: (error: any) => void): Promise<import("ws")>;
-    sendAudio(connection: any, audioData: Buffer): void;
-    closeConnection(connection: any): void;
+    createLiveTranscription(onTranscript: (text: string) => void, onError: (error: any) => void): Promise<WebSocket>;
+    sendAudio(connection: WebSocket, audioData: Buffer): void;
+    closeConnection(connection: WebSocket): void;
 }

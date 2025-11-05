@@ -1,94 +1,90 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import axios from 'axios';
+import { STTService } from './stt.interface';
+import WebSocket from 'ws'; // or whatever library
+import { v4 as uuidv4 } from 'uuid';
 
 @Injectable()
-export class SarvamService {
+export class SarvamService implements STTService {
   private apiKey: string;
-  private wsUrl = 'wss://api.sarvam.ai/speech-to-text-translate';
+  private endpoint: string;
 
   constructor(private configService: ConfigService) {
-    this.apiKey = this.configService.get('SARVAM_API_KEY');
-    console.log('Initializing Sarvam client with API key:', this.apiKey ? 'FOUND' : 'MISSING');
+    this.apiKey = this.configService.get<string>('SARVAM_API_KEY');
+    this.endpoint = this.configService.get<string>('SARVAM_STREAM_URL')
+      || 'wss://streaming.sarvam.ai/speech-to-text/stream'; // hypothetical
+    if (!this.apiKey) {
+      console.warn('Sarvam API key missing');
+    }
   }
 
   async createLiveTranscription(
     onTranscript: (text: string) => void,
     onError: (error: any) => void
   ) {
-    console.log('Creating Sarvam live transcription connection...');
+    console.log('Connecting to Sarvam streaming endpoint…');
 
-    const WebSocket = (await import('ws')).default;
-
-    const ws = new WebSocket(this.wsUrl, {
-      headers: {
-        'api-subscription-key': this.apiKey,
-      },
+    const connection = new WebSocket(this.endpoint, {
+      headers: { "api-subscription-key": this.apiKey }
     });
 
-    ws.on('open', () => {
-      console.log('Sarvam WebSocket connection opened');
-
-      const config = {
-        language_code: 'en-IN',
-        model: 'saarika:v1',
-        format: 'pcm',
-        sample_rate: 16000,
+    connection.on('open', () => {
+      console.log('Sarvam WebSocket open');
+      // you may need to send a config message
+      const configMsg = {
+        type: 'config',
+        data: {
+          model: 'saarika:v2.5',
+          language_code: 'en‑IN',
+          // other params: interim_results, etc
+          interim_results: false,
+        }
       };
-
-      ws.send(JSON.stringify(config));
+      connection.send(JSON.stringify(configMsg));
     });
 
-    ws.on('message', (data: Buffer) => {
+    connection.on('message', (msgRaw) => {
       try {
-        const response = JSON.parse(data.toString());
-        console.log('Received Sarvam message:', response);
-
-        if (response.type === 'transcript' && response.text) {
-          const transcript = response.text.trim();
-          if (transcript.length > 0) {
-            console.log('Sarvam transcribed text:', transcript);
-            onTranscript(transcript);
+        const msg = JSON.parse(msgRaw.toString());
+        if (msg.type === 'transcript' && msg.data?.text) {
+          const text = msg.data.text.trim();
+          if (text.length > 0) {
+            console.log('Transcribed:', text);
+            onTranscript(text);
           }
         }
-      } catch (error) {
-        console.error('Error parsing Sarvam message:', error);
+      } catch (err) {
+        console.error('Parsing Sarvam message error', err);
       }
     });
 
-    ws.on('error', (error) => {
-      console.error('Sarvam WebSocket error:', error);
-      onError(error);
+    connection.on('error', (err) => {
+      console.error('Sarvam WebSocket error', err);
+      onError(err);
     });
 
-    ws.on('close', () => {
-      console.log('Sarvam WebSocket connection closed');
+    connection.on('close', (code, reason) => {
+      console.log(`Sarvam connection closed ${code} ${reason}`);
     });
 
-    return ws;
+    return connection;
   }
 
-  sendAudio(connection: any, audioData: Buffer) {
-    if (!connection) {
-      console.warn('No Sarvam connection to send audio');
+  sendAudio(connection: WebSocket, audioData: Buffer) {
+    if (!connection || connection.readyState !== WebSocket.OPEN) {
+      console.warn('Sarvam connection not open');
       return;
     }
-
-    if (connection.readyState === 1) {
-      console.log('Sending audio buffer to Sarvam, length:', audioData.length);
-      connection.send(audioData);
-    } else {
-      console.warn('Sarvam connection not open, cannot send audio');
-    }
+    // Depending on Sarvam spec you might send binary frames
+    console.log('Sending audio buffer length:', audioData.length);
+    connection.send(audioData);
   }
 
-  closeConnection(connection: any) {
+  closeConnection(connection: WebSocket) {
     if (!connection) {
-      console.warn('No Sarvam connection to close');
       return;
     }
-
-    console.log('Closing Sarvam connection...');
+    console.log('Closing Sarvam connection');
     connection.close();
   }
 }
