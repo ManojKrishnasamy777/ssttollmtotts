@@ -107,7 +107,7 @@ Never output Tamil words in English script. Always write Tamil words in Tamil sc
 
     try {
       const response = await this.openai.chat.completions.create({
-        model: 'gpt-4-turbo-preview',
+        model: 'gpt-5',
         messages: this.userConversations[userId] as any,
         max_tokens: 150,
         temperature: 0.9,

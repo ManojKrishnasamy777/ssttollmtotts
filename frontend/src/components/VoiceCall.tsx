@@ -1,5 +1,6 @@
-import { useStreamCall } from '../hooks/useStreamCall';
-import { VoiceVisualizer } from './VoiceVisualizer';
+import { useStreamCall } from "../hooks/useStreamCall";
+import { VoiceVisualizer } from "./VoiceVisualizer";
+
 
 export const VoiceCall = () => {
   const {
