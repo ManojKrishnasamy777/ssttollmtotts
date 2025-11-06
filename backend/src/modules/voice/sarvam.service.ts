@@ -1,8 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { STTService } from './stt.interface';
-import WebSocket from 'ws'; // or whatever library
-import { v4 as uuidv4 } from 'uuid';
+import WebSocket from 'ws';
 
 @Injectable()
 export class SarvamService implements STTService {
