@@ -8,109 +8,105 @@ var __decorate = (this && this.__decorate) || function (decorators, target, key,
 var __metadata = (this && this.__metadata) || function (k, v) {
     if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
 };
-var __importDefault = (this && this.__importDefault) || function (mod) {
-    return (mod && mod.__esModule) ? mod : { "default": mod };
-};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.SarvamService = void 0;
 const common_1 = require("@nestjs/common");
 const config_1 = require("@nestjs/config");
-const ws_1 = __importDefault(require("ws"));
+const sarvamai_1 = require("sarvamai");
 let SarvamService = class SarvamService {
     constructor(configService) {
         this.configService = configService;
-        this.apiKey = this.configService.get('SARVAM_API_KEY');
-        this.endpoint = this.configService.get('SARVAM_STREAM_URL')
-            || 'wss://streaming.sarvam.ai/speech-to-text/stream';
-        if (!this.apiKey) {
-            console.warn('Sarvam API key missing');
-        }
+        this.DEFAULT_LANGUAGE_CODE = 'ta-IN';
+        const apiKey = this.configService.get('SARVAM_API_KEY');
+        console.log('--- DEBUG START ---');
+        console.log(`[Sarvam Init] Initializing client with API key: ${apiKey ? 'FOUND' : 'MISSING'}`);
+        this.sarvamClient = new sarvamai_1.SarvamAIClient({
+            apiSubscriptionKey: apiKey,
+        });
     }
     async createLiveTranscription(onTranscript, onError) {
-        console.log('Connecting to Sarvam streaming endpoint…');
-        const connection = new ws_1.default(this.endpoint, {
-            headers: { "api-subscription-key": this.apiKey }
-        });
-        let keepAliveInterval = null;
-        connection.on('open', () => {
-            console.log('Sarvam WebSocket connection opened');
-            const configMsg = {
-                config: {
-                    model: 'saarika:v1',
-                    language_code: 'en-IN',
-                    sample_rate: 16000,
-                    encoding: 'LINEAR16'
+        console.log('[Sarvam Connect] Creating live transcription connection...');
+        console.log(`[Sarvam Connect] Config: Language=${this.DEFAULT_LANGUAGE_CODE}, Codec='pcm_s16le', SampleRate=16000`);
+        try {
+            const connection = await this.sarvamClient.speechToTextStreaming.connect({
+                'language-code': this.DEFAULT_LANGUAGE_CODE,
+                input_audio_codec: 'pcm_s16le',
+                sample_rate: 16000,
+            });
+            console.log('[Sarvam Connect] **Connection established successfully.**');
+            connection.on('message', (response) => {
+                const responseAny = response;
+                let transcript;
+                console.log(`[Sarvam Event] RECEIVED MESSAGE: ${JSON.stringify(responseAny)}`);
+                if (responseAny.type !== 'error') {
+                    transcript = responseAny.data?.text || responseAny.text;
                 }
+                if (transcript && transcript.trim().length > 0) {
+                    console.log(`[Sarvam Transcript] **TRANSCRIBED TEXT:** ${transcript}`);
+                    onTranscript(transcript);
+                }
+                else if (responseAny.type !== 'error') {
+                    console.log('[Sarvam Event] Ignored empty or non-transcript data.');
+                }
+            });
+            connection.on('error', (error) => {
+                console.error(`[Sarvam Event] **ERROR EVENT:** ${JSON.stringify(error, null, 2)}`);
+                onError(error);
+            });
+            connection.on('close', () => {
+                console.log('[Sarvam Event] **CONNECTION CLOSED.**');
+            });
+            const sarvamConnectionWrapper = {
+                connection,
+                listener: null,
+                send: async (audioData) => {
+                    const state = connection.readyState ?? 0;
+                    console.log(`[Sarvam Send] ReadyState=${state}. Sending audio buffer of length: ${audioData.length}`);
+                    if (state === 1) {
+                        const audioBase64 = audioData.toString('base64');
+                        await connection.transcribe({ audio: audioBase64 });
+                    }
+                    else {
+                        console.warn('[Sarvam Send] WARNING: Connection not open (readyState != 1), cannot send audio.');
+                    }
+                },
+                finish: async () => {
+                    console.log('[Sarvam Close] Closing connection...');
+                    await connection.transcribe({ audio: '' });
+                    await new Promise(resolve => setTimeout(resolve, 500));
+                    await connection.close();
+                },
+                getReadyState: () => connection.readyState ?? 0
             };
-            console.log('Sending Sarvam config:', JSON.stringify(configMsg));
-            connection.send(JSON.stringify(configMsg));
-            keepAliveInterval = setInterval(() => {
-                if (connection && connection.readyState === ws_1.default.OPEN) {
-                    const silence = Buffer.alloc(3200);
-                    connection.send(silence);
-                }
-            }, 5000);
-        });
-        connection.on('message', (msgRaw) => {
-            try {
-                const msgStr = msgRaw.toString();
-                console.log('Sarvam raw message:', msgStr);
-                const msg = JSON.parse(msgStr);
-                console.log('Sarvam parsed message:', JSON.stringify(msg));
-                if (msg.type === 'transcript' || msg.transcript) {
-                    const text = (msg.transcript || msg.text || msg.data?.text || '').trim();
-                    if (text.length > 0) {
-                        console.log('Sarvam transcribed text:', text);
-                        onTranscript(text);
-                    }
-                }
-                else if (msg.type === 'final' && msg.text) {
-                    const text = msg.text.trim();
-                    if (text.length > 0) {
-                        console.log('Sarvam final transcript:', text);
-                        onTranscript(text);
-                    }
-                }
-                else if (msg.is_final && msg.transcript) {
-                    const text = msg.transcript.trim();
-                    if (text.length > 0) {
-                        console.log('Sarvam final transcript (is_final):', text);
-                        onTranscript(text);
-                    }
-                }
-            }
-            catch (err) {
-                console.error('Error parsing Sarvam message:', err);
-                console.error('Raw message was:', msgRaw.toString());
-            }
-        });
-        connection.on('error', (err) => {
-            console.error('Sarvam WebSocket error:', err);
-            onError(err);
-        });
-        connection.on('close', (code, reason) => {
-            console.log(`Sarvam connection closed ${code} ${reason}`);
-            if (keepAliveInterval) {
-                clearInterval(keepAliveInterval);
-                keepAliveInterval = null;
-            }
-        });
-        return connection;
+            return sarvamConnectionWrapper;
+        }
+        catch (error) {
+            console.error(`[Sarvam Connect] **FATAL CONNECTION ERROR:** ${error}`);
+            onError(error);
+            return {
+                connection: null,
+                listener: null,
+                send: async () => console.warn('[Sarvam Send] Connection failed, cannot send audio'),
+                finish: async () => console.warn('[Sarvam Close] Connection failed, nothing to close'),
+                getReadyState: () => 0
+            };
+        }
     }
     sendAudio(connection, audioData) {
-        if (!connection || connection.readyState !== ws_1.default.OPEN) {
-            console.warn('Sarvam connection not open');
+        if (!connection) {
+            console.warn('[Sarvam Send] No connection wrapper to send audio.');
             return;
         }
-        console.log('Sending audio buffer length:', audioData.length);
+        const state = connection.getReadyState();
         connection.send(audioData);
     }
     closeConnection(connection) {
-        if (!connection) {
-            return;
+        if (connection) {
+            connection.finish();
         }
-        console.log('Closing Sarvam connection');
-        connection.close();
+        else {
+            console.warn('[Sarvam Close] No connection wrapper to close.');
+        }
     }
 };
 exports.SarvamService = SarvamService;

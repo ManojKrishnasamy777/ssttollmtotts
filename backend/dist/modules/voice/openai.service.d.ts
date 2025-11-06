@@ -6,6 +6,7 @@ export declare class OpenAIService {
     private firstMessageVariants;
     constructor(configService: ConfigService);
     private getRandomFirstMessage;
+    private detectComplexity;
     generateResponse(userId: string, messages?: Array<{
         role: string;
         content: string;

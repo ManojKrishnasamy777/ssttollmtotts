@@ -18,9 +18,11 @@ const common_1 = require("@nestjs/common");
 const express_1 = require("express");
 const rxjs_1 = require("rxjs");
 const stream_service_1 = require("./stream.service");
+const sarvam_service_1 = require("./sarvam.service");
 let StreamController = class StreamController {
-    constructor(streamService) {
+    constructor(streamService, _SarvamService) {
         this.streamService = streamService;
+        this._SarvamService = _SarvamService;
     }
     async handleAudioStream(payload, res) {
         try {
@@ -35,17 +37,23 @@ let StreamController = class StreamController {
             });
         }
     }
-    streamEvents(res) {
-        const userId = res.req.params.userId;
+    streamEvents(userId, res) {
         console.log(`[SSE] Client connected: ${userId}`);
         const subject = new rxjs_1.Subject();
         this.streamService.registerClient(userId, (event) => {
             subject.next({ data: JSON.stringify(event) });
         });
-        res.on('close', () => {
+        const cleanup = () => {
             console.log(`[SSE] Client disconnected: ${userId}`);
             this.streamService.unregisterClient(userId);
             subject.complete();
+        };
+        subject.subscribe({ complete: cleanup });
+        const interval = setInterval(() => {
+            subject.next({ data: JSON.stringify({ type: 'ping', time: Date.now() }) });
+        }, 15000);
+        subject.subscribe({
+            complete: () => clearInterval(interval),
         });
         return subject.asObservable();
     }
@@ -74,9 +82,10 @@ __decorate([
 ], StreamController.prototype, "handleAudioStream", null);
 __decorate([
     (0, common_1.Sse)('events/:userId'),
-    __param(0, (0, common_1.Res)()),
+    __param(0, (0, common_1.Param)('userId')),
+    __param(1, (0, common_1.Res)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [typeof (_b = typeof express_1.Response !== "undefined" && express_1.Response) === "function" ? _b : Object]),
+    __metadata("design:paramtypes", [String, typeof (_b = typeof express_1.Response !== "undefined" && express_1.Response) === "function" ? _b : Object]),
     __metadata("design:returntype", rxjs_1.Observable)
 ], StreamController.prototype, "streamEvents", null);
 __decorate([
@@ -88,7 +97,7 @@ __decorate([
     __metadata("design:returntype", Promise)
 ], StreamController.prototype, "handleEndCall", null);
 exports.StreamController = StreamController = __decorate([
-    (0, common_1.Controller)('stream'),
-    __metadata("design:paramtypes", [stream_service_1.StreamService])
+    (0, common_1.Controller)({ path: 'stream', version: '1' }),
+    __metadata("design:paramtypes", [stream_service_1.StreamService, sarvam_service_1.SarvamService])
 ], StreamController);
 //# sourceMappingURL=stream.controller.js.map

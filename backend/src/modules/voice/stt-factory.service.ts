@@ -10,7 +10,7 @@ export class STTFactoryService {
     private configService: ConfigService,
     private deepgramService: DeepgramService,
     private sarvamService: SarvamService,
-  ) {}
+  ) { }
 
   getSTTService(): STTService {
     const provider = this.configService.get('STT_PROVIDER') || 'deepgram';

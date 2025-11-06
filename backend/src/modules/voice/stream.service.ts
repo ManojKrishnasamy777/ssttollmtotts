@@ -11,9 +11,6 @@ interface StreamConnection {
   lastActivityTime: number;
   eventCallback?: (event: any) => void;
   firstMessageSent: boolean;
-  isAISpeaking: boolean;
-  pendingTranscripts: string[];
-  interruptTimeout?: NodeJS.Timeout;
 }
 
 @Injectable()
@@ -42,34 +39,33 @@ export class StreamService {
       async (transcript) => {
         console.log(`[STT] Transcript: "${transcript}"`);
 
-        const conn = this.connections.get(userId);
-        if (!conn) return;
-
         eventCallback({
           type: 'transcript',
           text: transcript,
         });
 
-        if (conn.isAISpeaking) {
-          console.log('[Interrupt] User interrupted AI, queuing transcript');
-          conn.pendingTranscripts.push(transcript);
+        await this.conversationService.addMessage(conversationId, 'user', transcript);
 
-          if (conn.interruptTimeout) {
-            clearTimeout(conn.interruptTimeout);
-          }
+        const messages = await this.conversationService.getConversationHistory(conversationId);
+        const aiResponse = await this.openaiService.generateResponse(userId, messages);
 
-          conn.interruptTimeout = setTimeout(async () => {
-            await this.handleInterrupt(userId);
-          }, 1500);
+        console.log(`[AI] Response: "${aiResponse}"`);
 
-          eventCallback({
-            type: 'ai-interrupted',
-          });
+        await this.conversationService.addMessage(conversationId, 'assistant', aiResponse);
 
-          return;
-        }
+        eventCallback({
+          type: 'ai-response',
+          text: aiResponse,
+        });
 
-        await this.processTranscript(userId, transcript);
+        const audioBuffer = await this.elevenlabsService.textToSpeech(aiResponse);
+
+        console.log(`[TTS] Generated audio: ${audioBuffer.length} bytes`);
+
+        eventCallback({
+          type: 'audio',
+          data: audioBuffer.toString('base64'),
+        });
       },
       (error) => {
         console.error('[STT] Error:', error);
@@ -87,103 +83,34 @@ export class StreamService {
       lastActivityTime: Date.now(),
       eventCallback,
       firstMessageSent: false,
-      isAISpeaking: false,
-      pendingTranscripts: [],
     };
 
     this.connections.set(userId, connection);
 
     setTimeout(async () => {
-      const conn = this.connections.get(userId);
-      if (!conn || conn.firstMessageSent) return;
+      if (!connection.firstMessageSent) {
+        const messages = await this.conversationService.getConversationHistory(conversationId);
+        const greeting = await this.openaiService.generateResponse(userId, messages);
 
-      const messages = await this.conversationService.getConversationHistory(conversationId);
-      const greeting = await this.openaiService.generateResponse(userId, messages);
+        console.log(`[AI] Initial greeting: "${greeting}"`);
 
-      console.log(`[AI] Initial greeting: "${greeting}"`);
+        await this.conversationService.addMessage(conversationId, 'assistant', greeting);
 
-      await this.conversationService.addMessage(conversationId, 'assistant', greeting);
+        eventCallback({
+          type: 'ai-response',
+          text: greeting,
+        });
 
-      eventCallback({
-        type: 'ai-response',
-        text: greeting,
-      });
+        const audioBuffer = await this.elevenlabsService.textToSpeech(greeting);
 
-      conn.isAISpeaking = true;
+        eventCallback({
+          type: 'audio',
+          data: audioBuffer.toString('base64'),
+        });
 
-      const audioBuffer = await this.elevenlabsService.textToSpeech(greeting);
-
-      eventCallback({
-        type: 'audio',
-        data: audioBuffer.toString('base64'),
-      });
-
-      conn.firstMessageSent = true;
-
-      setTimeout(() => {
-        const c = this.connections.get(userId);
-        if (c) {
-          c.isAISpeaking = false;
-        }
-      }, Math.floor(audioBuffer.length / 32));
-    }, 500);
-  }
-
-  private async processTranscript(userId: string, transcript: string): Promise<void> {
-    const connection = this.connections.get(userId);
-    if (!connection) return;
-
-    const { conversationId, eventCallback } = connection;
-
-    await this.conversationService.addMessage(conversationId, 'user', transcript);
-
-    const messages = await this.conversationService.getConversationHistory(conversationId);
-    const aiResponse = await this.openaiService.generateResponse(userId, messages);
-
-    console.log(`[AI] Response: "${aiResponse}"`);
-
-    await this.conversationService.addMessage(conversationId, 'assistant', aiResponse);
-
-    eventCallback({
-      type: 'ai-response',
-      text: aiResponse,
-    });
-
-    connection.isAISpeaking = true;
-
-    const audioBuffer = await this.elevenlabsService.textToSpeech(aiResponse);
-
-    console.log(`[TTS] Generated audio: ${audioBuffer.length} bytes`);
-
-    eventCallback({
-      type: 'audio',
-      data: audioBuffer.toString('base64'),
-    });
-
-    setTimeout(() => {
-      const conn = this.connections.get(userId);
-      if (conn) {
-        conn.isAISpeaking = false;
+        connection.firstMessageSent = true;
       }
-    }, Math.floor(audioBuffer.length / 32));
-  }
-
-  private async handleInterrupt(userId: string): Promise<void> {
-    const connection = this.connections.get(userId);
-    if (!connection) return;
-
-    console.log('[Interrupt] Processing user interruption');
-
-    connection.isAISpeaking = false;
-
-    if (connection.pendingTranscripts.length === 0) return;
-
-    const combinedTranscript = connection.pendingTranscripts.join(' ');
-    connection.pendingTranscripts = [];
-
-    console.log(`[Interrupt] Processing combined transcript: "${combinedTranscript}"`);
-
-    await this.processTranscript(userId, combinedTranscript);
+    }, 500);
   }
 
   async processAudio(userId: string, audioData: Buffer): Promise<void> {

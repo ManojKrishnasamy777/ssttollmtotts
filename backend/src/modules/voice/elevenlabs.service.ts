@@ -27,7 +27,7 @@ export class ElevenLabsService {
         `https://api.elevenlabs.io/v1/text-to-speech/${this.voiceId}`,
         {
           text,
-          model_id: 'eleven_turbo_v2',
+          model_id: 'eleven_flash_v2',
           voice_settings: {
             stability: 0.35,
             similarity_boost: 0.85,

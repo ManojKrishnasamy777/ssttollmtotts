@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import streamService from '../services/stream.service';
+import streamService from '../service/stream.service';
 
 export const useStreamCall = () => {
   const [isConnected, setIsConnected] = useState(false);
@@ -11,22 +11,6 @@ export const useStreamCall = () => {
   const audioContextRef = useRef<AudioContext | null>(null);
   const audioQueueRef = useRef<ArrayBuffer[]>([]);
   const isPlayingRef = useRef(false);
-  const currentSourceRef = useRef<AudioBufferSourceNode | null>(null);
-
-  const stopCurrentAudio = () => {
-    if (currentSourceRef.current) {
-      try {
-        currentSourceRef.current.stop();
-        currentSourceRef.current.disconnect();
-      } catch (err) {
-        console.log('[Hook] Audio source already stopped');
-      }
-      currentSourceRef.current = null;
-    }
-    audioQueueRef.current = [];
-    isPlayingRef.current = false;
-    setIsSpeaking(false);
-  };
 
   const playAudioQueue = async () => {
     if (isPlayingRef.current || audioQueueRef.current.length === 0) {
@@ -46,18 +30,13 @@ export const useStreamCall = () => {
           const source = audioContextRef.current.createBufferSource();
           source.buffer = audioBuffer;
           source.connect(audioContextRef.current.destination);
-          currentSourceRef.current = source;
 
           await new Promise<void>((resolve) => {
-            source.onended = () => {
-              currentSourceRef.current = null;
-              resolve();
-            };
+            source.onended = () => resolve();
             source.start();
           });
         } catch (error) {
           console.error('Error playing audio:', error);
-          currentSourceRef.current = null;
         }
       }
     }
@@ -85,7 +64,6 @@ export const useStreamCall = () => {
 
       streamService.onAudio((data) => {
         console.log('[Hook] Audio received:', data.byteLength, 'bytes');
-        stopCurrentAudio();
         audioQueueRef.current.push(data);
         playAudioQueue();
       });
@@ -127,7 +105,6 @@ export const useStreamCall = () => {
   const disconnect = async () => {
     console.log('[Hook] Disconnecting');
     stopRecording();
-    stopCurrentAudio();
     await streamService.disconnect();
     setIsConnected(false);
 

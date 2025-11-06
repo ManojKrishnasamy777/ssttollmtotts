@@ -1,8 +1,8 @@
 class StreamService {
   private audioContext: AudioContext | null = null;
   private mediaStream: MediaStream | null = null;
-  private userId: string = '';
-  private baseUrl: string = 'http://localhost:3001';
+  private userId: string = '38db6a01-b3d3-4168-b49b-de4993af8cc9';
+  private baseUrl: string = 'http://localhost:8000';
   private eventSource: EventSource | null = null;
   private audioProcessor: ScriptProcessorNode | null = null;
 
@@ -11,15 +11,15 @@ class StreamService {
   private onAudioCallback: ((data: ArrayBuffer) => void) | null = null;
   private onErrorCallback: ((error: any) => void) | null = null;
   private onSpeakingCallback: ((isSpeaking: boolean) => void) | null = null;
-  private currentAudioSource: AudioBufferSourceNode | null = null;
 
   async connect(): Promise<string> {
-    this.userId = `user_${Date.now()}`;
+    // this.userId = `user_${Date.now()}`;
+    this.userId = `38db6a01-b3d3-4168-b49b-de4993af8cc9`;
     console.log('[Stream] Connecting with userId:', this.userId);
 
     this.audioContext = new AudioContext({ sampleRate: 16000 });
 
-    this.eventSource = new EventSource(`${this.baseUrl}/stream/events/${this.userId}`);
+    this.eventSource = new EventSource(`${this.baseUrl}/api/v1/stream/events/${this.userId}`);
 
     this.eventSource.onmessage = (event) => {
       try {
@@ -36,10 +36,6 @@ class StreamService {
           case 'audio':
             const audioData = this.base64ToArrayBuffer(message.data);
             this.onAudioCallback?.(audioData);
-            break;
-          case 'ai-interrupted':
-            console.log('[Stream] AI interrupted, stopping current audio');
-            this.stopCurrentAudio();
             break;
           case 'error':
             this.onErrorCallback?.(message.error);
@@ -136,7 +132,7 @@ class StreamService {
     try {
       const base64Audio = this.arrayBufferToBase64(audioData);
 
-      await fetch(`${this.baseUrl}/stream/audio`, {
+      await fetch(`${this.baseUrl}/api/v1/stream/audio`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -181,23 +177,10 @@ class StreamService {
     }
   }
 
-  private stopCurrentAudio(): void {
-    if (this.currentAudioSource) {
-      try {
-        this.currentAudioSource.stop();
-        this.currentAudioSource.disconnect();
-      } catch (err) {
-        console.log('[Stream] Audio source already stopped');
-      }
-      this.currentAudioSource = null;
-    }
-  }
-
   async disconnect(): Promise<void> {
     console.log('[Stream] Disconnecting');
 
     this.stopRecording();
-    this.stopCurrentAudio();
 
     if (this.eventSource) {
       this.eventSource.close();
@@ -208,10 +191,11 @@ class StreamService {
       await this.audioContext.close();
       this.audioContext = null;
     }
-
+    debugger
+this.userId = '38db6a01-b3d3-4168-b49b-de4993af8cc9';
     if (this.userId) {
       try {
-        await fetch(`${this.baseUrl}/stream/end-call`, {
+        await fetch(`${this.baseUrl}/api/v1/stream/end-call`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ userId: this.userId }),
