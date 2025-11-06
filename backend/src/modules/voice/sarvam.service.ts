@@ -1,8 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { STTService } from './stt.interface';
-import WebSocket from 'ws'; // or whatever library
-import { v4 as uuidv4 } from 'uuid';
+import WebSocket from 'ws';
 
 @Injectable()
 export class SarvamService implements STTService {
@@ -28,43 +27,75 @@ export class SarvamService implements STTService {
       headers: { "api-subscription-key": this.apiKey }
     });
 
+    let keepAliveInterval: NodeJS.Timeout | null = null;
+
     connection.on('open', () => {
-      console.log('Sarvam WebSocket open');
-      // you may need to send a config message
+      console.log('Sarvam WebSocket connection opened');
+
       const configMsg = {
-        type: 'config',
-        data: {
-          model: 'saarika:v2.5',
-          language_code: 'en‑IN',
-          // other params: interim_results, etc
-          interim_results: false,
+        config: {
+          model: 'saarika:v1',
+          language_code: 'en-IN',
+          sample_rate: 16000,
+          encoding: 'LINEAR16'
         }
       };
+
+      console.log('Sending Sarvam config:', JSON.stringify(configMsg));
       connection.send(JSON.stringify(configMsg));
+
+      keepAliveInterval = setInterval(() => {
+        if (connection && connection.readyState === WebSocket.OPEN) {
+          const silence = Buffer.alloc(3200);
+          connection.send(silence);
+        }
+      }, 5000);
     });
 
     connection.on('message', (msgRaw) => {
       try {
-        const msg = JSON.parse(msgRaw.toString());
-        if (msg.type === 'transcript' && msg.data?.text) {
-          const text = msg.data.text.trim();
+        const msgStr = msgRaw.toString();
+        console.log('Sarvam raw message:', msgStr);
+
+        const msg = JSON.parse(msgStr);
+        console.log('Sarvam parsed message:', JSON.stringify(msg));
+
+        if (msg.type === 'transcript' || msg.transcript) {
+          const text = (msg.transcript || msg.text || msg.data?.text || '').trim();
           if (text.length > 0) {
-            console.log('Transcribed:', text);
+            console.log('Sarvam transcribed text:', text);
+            onTranscript(text);
+          }
+        } else if (msg.type === 'final' && msg.text) {
+          const text = msg.text.trim();
+          if (text.length > 0) {
+            console.log('Sarvam final transcript:', text);
+            onTranscript(text);
+          }
+        } else if (msg.is_final && msg.transcript) {
+          const text = msg.transcript.trim();
+          if (text.length > 0) {
+            console.log('Sarvam final transcript (is_final):', text);
             onTranscript(text);
           }
         }
       } catch (err) {
-        console.error('Parsing Sarvam message error', err);
+        console.error('Error parsing Sarvam message:', err);
+        console.error('Raw message was:', msgRaw.toString());
       }
     });
 
     connection.on('error', (err) => {
-      console.error('Sarvam WebSocket error', err);
+      console.error('Sarvam WebSocket error:', err);
       onError(err);
     });
 
     connection.on('close', (code, reason) => {
       console.log(`Sarvam connection closed ${code} ${reason}`);
+      if (keepAliveInterval) {
+        clearInterval(keepAliveInterval);
+        keepAliveInterval = null;
+      }
     });
 
     return connection;

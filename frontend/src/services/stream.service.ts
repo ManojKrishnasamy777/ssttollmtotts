@@ -11,6 +11,7 @@ class StreamService {
   private onAudioCallback: ((data: ArrayBuffer) => void) | null = null;
   private onErrorCallback: ((error: any) => void) | null = null;
   private onSpeakingCallback: ((isSpeaking: boolean) => void) | null = null;
+  private currentAudioSource: AudioBufferSourceNode | null = null;
 
   async connect(): Promise<string> {
     this.userId = `user_${Date.now()}`;
@@ -35,6 +36,10 @@ class StreamService {
           case 'audio':
             const audioData = this.base64ToArrayBuffer(message.data);
             this.onAudioCallback?.(audioData);
+            break;
+          case 'ai-interrupted':
+            console.log('[Stream] AI interrupted, stopping current audio');
+            this.stopCurrentAudio();
             break;
           case 'error':
             this.onErrorCallback?.(message.error);
@@ -176,10 +181,23 @@ class StreamService {
     }
   }
 
+  private stopCurrentAudio(): void {
+    if (this.currentAudioSource) {
+      try {
+        this.currentAudioSource.stop();
+        this.currentAudioSource.disconnect();
+      } catch (err) {
+        console.log('[Stream] Audio source already stopped');
+      }
+      this.currentAudioSource = null;
+    }
+  }
+
   async disconnect(): Promise<void> {
     console.log('[Stream] Disconnecting');
 
     this.stopRecording();
+    this.stopCurrentAudio();
 
     if (this.eventSource) {
       this.eventSource.close();
