@@ -50,19 +50,26 @@ export class SarvamService implements STTService {
         const responseAny: any = response;
         let transcript: string | undefined;
 
-        // **CRITICAL DEBUG LOG:** Print the raw response object to find the transcript path
         console.log(`[Sarvam Event] RECEIVED MESSAGE: ${JSON.stringify(responseAny)}`);
 
-        if (responseAny.type !== 'error') {
-          // Temporarily trying common paths. Use the debug log above to find the right one.
-          transcript = responseAny.data?.text || responseAny.text;
+        if (responseAny.type === 'error') {
+          console.error(`[Sarvam Event] Error in response: ${JSON.stringify(responseAny)}`);
+          return;
         }
+
+        // Try multiple possible paths for Sarvam response
+        transcript = responseAny.transcript ||
+                     responseAny.data?.transcript ||
+                     responseAny.text ||
+                     responseAny.data?.text ||
+                     responseAny.results?.[0]?.transcript ||
+                     responseAny.transcription;
 
         if (transcript && transcript.trim().length > 0) {
           console.log(`[Sarvam Transcript] **TRANSCRIBED TEXT:** ${transcript}`);
           onTranscript(transcript);
-        } else if (responseAny.type !== 'error') {
-          console.log('[Sarvam Event] Ignored empty or non-transcript data.');
+        } else if (responseAny.type !== 'partial') {
+          console.log('[Sarvam Event] Received message without transcript:', JSON.stringify(responseAny, null, 2));
         }
       });
 
@@ -83,12 +90,15 @@ export class SarvamService implements STTService {
 
         send: async (audioData: Buffer) => {
           const state = connection.readyState ?? 0;
-          console.log(`[Sarvam Send] ReadyState=${state}. Sending audio buffer of length: ${audioData.length}`);
           if (state === 1) {
-            const audioBase64 = audioData.toString('base64');
-            await connection.transcribe({ audio: audioBase64 });
+            try {
+              const audioBase64 = audioData.toString('base64');
+              await connection.transcribe({ audio: audioBase64 });
+            } catch (error) {
+              console.error('[Sarvam Send] Error sending audio:', error);
+            }
           } else {
-            console.warn('[Sarvam Send] WARNING: Connection not open (readyState != 1), cannot send audio.');
+            console.warn(`[Sarvam Send] WARNING: Connection not ready (state=${state})`);
           }
         },
 

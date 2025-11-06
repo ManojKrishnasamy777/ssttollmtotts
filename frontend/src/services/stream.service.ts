@@ -2,7 +2,7 @@ class StreamService {
   private audioContext: AudioContext | null = null;
   private mediaStream: MediaStream | null = null;
   private userId: string = '38db6a01-b3d3-4168-b49b-de4993af8cc9';
-  private baseUrl: string = 'http://localhost:8000';
+  private baseUrl: string = 'http://localhost:3001';
   private eventSource: EventSource | null = null;
   private audioProcessor: ScriptProcessorNode | null = null;
 
@@ -11,6 +11,8 @@ class StreamService {
   private onAudioCallback: ((data: ArrayBuffer) => void) | null = null;
   private onErrorCallback: ((error: any) => void) | null = null;
   private onSpeakingCallback: ((isSpeaking: boolean) => void) | null = null;
+  private onAIInterruptedCallback: (() => void) | null = null;
+  private currentAudioSource: AudioBufferSourceNode | null = null;
 
   async connect(): Promise<string> {
     // this.userId = `user_${Date.now()}`;
@@ -36,6 +38,11 @@ class StreamService {
           case 'audio':
             const audioData = this.base64ToArrayBuffer(message.data);
             this.onAudioCallback?.(audioData);
+            break;
+          case 'ai-interrupted':
+            console.log('[Stream] AI was interrupted by user');
+            this.stopCurrentAudio();
+            this.onAIInterruptedCallback?.();
             break;
           case 'error':
             this.onErrorCallback?.(message.error);
@@ -191,8 +198,6 @@ class StreamService {
       await this.audioContext.close();
       this.audioContext = null;
     }
-    debugger
-this.userId = '38db6a01-b3d3-4168-b49b-de4993af8cc9';
     if (this.userId) {
       try {
         await fetch(`${this.baseUrl}/api/v1/stream/end-call`, {
@@ -224,6 +229,26 @@ this.userId = '38db6a01-b3d3-4168-b49b-de4993af8cc9';
 
   onSpeaking(callback: (isSpeaking: boolean) => void): void {
     this.onSpeakingCallback = callback;
+  }
+
+  onAIInterrupted(callback: () => void): void {
+    this.onAIInterruptedCallback = callback;
+  }
+
+  setCurrentAudioSource(source: AudioBufferSourceNode | null): void {
+    this.currentAudioSource = source;
+  }
+
+  private stopCurrentAudio(): void {
+    if (this.currentAudioSource) {
+      try {
+        this.currentAudioSource.stop();
+        this.currentAudioSource = null;
+        console.log('[Stream] Stopped current audio playback');
+      } catch (error) {
+        console.error('[Stream] Error stopping audio:', error);
+      }
+    }
   }
 }
 

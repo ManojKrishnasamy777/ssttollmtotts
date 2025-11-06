@@ -11,6 +11,7 @@ export const useStreamCall = () => {
   const audioContextRef = useRef<AudioContext | null>(null);
   const audioQueueRef = useRef<ArrayBuffer[]>([]);
   const isPlayingRef = useRef(false);
+  const currentSourceRef = useRef<AudioBufferSourceNode | null>(null);
 
   const playAudioQueue = async () => {
     if (isPlayingRef.current || audioQueueRef.current.length === 0) {
@@ -31,18 +32,26 @@ export const useStreamCall = () => {
           source.buffer = audioBuffer;
           source.connect(audioContextRef.current.destination);
 
+          currentSourceRef.current = source;
+          streamService.setCurrentAudioSource(source);
+
           await new Promise<void>((resolve) => {
-            source.onended = () => resolve();
+            source.onended = () => {
+              currentSourceRef.current = null;
+              resolve();
+            };
             source.start();
           });
         } catch (error) {
           console.error('Error playing audio:', error);
+          currentSourceRef.current = null;
         }
       }
     }
 
     isPlayingRef.current = false;
     setIsSpeaking(false);
+    currentSourceRef.current = null;
   };
 
   const connect = async () => {
@@ -79,6 +88,21 @@ export const useStreamCall = () => {
         console.error('[Hook] Error:', error);
       });
 
+      streamService.onAIInterrupted(() => {
+        console.log('[Hook] AI interrupted - clearing audio queue');
+        audioQueueRef.current = [];
+        if (currentSourceRef.current) {
+          try {
+            currentSourceRef.current.stop();
+          } catch (error) {
+            console.error('[Hook] Error stopping audio source:', error);
+          }
+          currentSourceRef.current = null;
+        }
+        isPlayingRef.current = false;
+        setIsSpeaking(false);
+      });
+
       audioContextRef.current = new AudioContext();
       setIsConnected(true);
     } catch (error) {
@@ -105,6 +129,19 @@ export const useStreamCall = () => {
   const disconnect = async () => {
     console.log('[Hook] Disconnecting');
     stopRecording();
+
+    if (currentSourceRef.current) {
+      try {
+        currentSourceRef.current.stop();
+      } catch (error) {
+        console.error('[Hook] Error stopping audio on disconnect:', error);
+      }
+      currentSourceRef.current = null;
+    }
+
+    audioQueueRef.current = [];
+    isPlayingRef.current = false;
+
     await streamService.disconnect();
     setIsConnected(false);
 

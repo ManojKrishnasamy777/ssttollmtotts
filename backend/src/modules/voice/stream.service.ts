@@ -11,6 +11,9 @@ interface StreamConnection {
   lastActivityTime: number;
   eventCallback?: (event: any) => void;
   firstMessageSent: boolean;
+  isAiSpeaking: boolean;
+  pendingUserInput: string[];
+  aiResponseInProgress: boolean;
 }
 
 @Injectable()
@@ -44,28 +47,25 @@ export class StreamService {
           text: transcript,
         });
 
-        await this.conversationService.addMessage(conversationId, 'user', transcript);
+        const conn = this.connections.get(userId);
+        if (!conn) return;
 
-        const messages = await this.conversationService.getConversationHistory(conversationId);
-        const aiResponse = await this.openaiService.generateResponse(userId, messages);
+        // If AI is speaking, queue the user input for later processing
+        if (conn.isAiSpeaking || conn.aiResponseInProgress) {
+          console.log(`[Interrupt] User interrupted AI. Queuing input: "${transcript}"`);
+          conn.pendingUserInput.push(transcript);
 
-        console.log(`[AI] Response: "${aiResponse}"`);
+          // Signal to stop AI speaking
+          eventCallback({
+            type: 'ai-interrupted',
+            text: 'User interrupted',
+          });
 
-        await this.conversationService.addMessage(conversationId, 'assistant', aiResponse);
+          conn.isAiSpeaking = false;
+          return;
+        }
 
-        eventCallback({
-          type: 'ai-response',
-          text: aiResponse,
-        });
-
-        const audioBuffer = await this.elevenlabsService.textToSpeech(aiResponse);
-
-        console.log(`[TTS] Generated audio: ${audioBuffer.length} bytes`);
-
-        eventCallback({
-          type: 'audio',
-          data: audioBuffer.toString('base64'),
-        });
+        await this.processUserInput(userId, conversationId, transcript, eventCallback);
       },
       (error) => {
         console.error('[STT] Error:', error);
@@ -83,6 +83,9 @@ export class StreamService {
       lastActivityTime: Date.now(),
       eventCallback,
       firstMessageSent: false,
+      isAiSpeaking: false,
+      pendingUserInput: [],
+      aiResponseInProgress: false,
     };
 
     this.connections.set(userId, connection);
@@ -109,6 +112,12 @@ export class StreamService {
         });
 
         connection.firstMessageSent = true;
+        connection.isAiSpeaking = true;
+
+        // Mark AI as done speaking after greeting
+        setTimeout(() => {
+          connection.isAiSpeaking = false;
+        }, Math.max(3000, greeting.length * 50));
       }
     }, 500);
   }
@@ -165,6 +174,100 @@ export class StreamService {
 
   async endCall(userId: string): Promise<void> {
     await this.unregisterClient(userId);
+  }
+
+  private async processUserInput(
+    userId: string,
+    conversationId: string,
+    transcript: string,
+    eventCallback: (event: any) => void
+  ): Promise<void> {
+    const connection = this.connections.get(userId);
+    if (!connection) return;
+
+    try {
+      connection.aiResponseInProgress = true;
+
+      await this.conversationService.addMessage(conversationId, 'user', transcript);
+
+      // Check if there are pending interruptions
+      if (connection.pendingUserInput.length > 0) {
+        console.log(`[Interrupt] Processing pending inputs after AI was interrupted`);
+        const allInputs = connection.pendingUserInput.join(' ');
+        connection.pendingUserInput = [];
+
+        await this.conversationService.addMessage(conversationId, 'user', allInputs);
+      }
+
+      const messages = await this.conversationService.getConversationHistory(conversationId);
+      const aiResponse = await this.openaiService.generateResponse(userId, messages);
+
+      console.log(`[AI] Response: "${aiResponse}"`);
+
+      // Check again if user interrupted during AI processing
+      if (connection.pendingUserInput.length > 0) {
+        console.log(`[Interrupt] User interrupted during AI processing. Reprocessing...`);
+        const pendingInputs = connection.pendingUserInput.join(' ');
+        connection.pendingUserInput = [];
+        connection.aiResponseInProgress = false;
+        await this.processUserInput(userId, conversationId, pendingInputs, eventCallback);
+        return;
+      }
+
+      await this.conversationService.addMessage(conversationId, 'assistant', aiResponse);
+
+      eventCallback({
+        type: 'ai-response',
+        text: aiResponse,
+      });
+
+      connection.isAiSpeaking = true;
+      const audioBuffer = await this.elevenlabsService.textToSpeech(aiResponse);
+
+      console.log(`[TTS] Generated audio: ${audioBuffer.length} bytes`);
+
+      // Check one more time before sending audio
+      if (connection.pendingUserInput.length > 0) {
+        console.log(`[Interrupt] User interrupted before audio playback. Skipping audio...`);
+        const pendingInputs = connection.pendingUserInput.join(' ');
+        connection.pendingUserInput = [];
+        connection.isAiSpeaking = false;
+        connection.aiResponseInProgress = false;
+        await this.processUserInput(userId, conversationId, pendingInputs, eventCallback);
+        return;
+      }
+
+      eventCallback({
+        type: 'audio',
+        data: audioBuffer.toString('base64'),
+      });
+
+      connection.aiResponseInProgress = false;
+
+      // Set a timeout to mark AI as done speaking (approximate audio duration)
+      setTimeout(() => {
+        if (connection.isAiSpeaking) {
+          connection.isAiSpeaking = false;
+          console.log(`[AI] Finished speaking`);
+
+          // Process any pending inputs after AI finishes
+          if (connection.pendingUserInput.length > 0) {
+            const pendingInputs = connection.pendingUserInput.join(' ');
+            connection.pendingUserInput = [];
+            this.processUserInput(userId, conversationId, pendingInputs, eventCallback);
+          }
+        }
+      }, Math.max(3000, aiResponse.length * 50));
+
+    } catch (error) {
+      console.error('[Stream] Error processing user input:', error);
+      connection.aiResponseInProgress = false;
+      connection.isAiSpeaking = false;
+      eventCallback({
+        type: 'error',
+        error: error.message,
+      });
+    }
   }
 
   private startCleanupTask(): void {
