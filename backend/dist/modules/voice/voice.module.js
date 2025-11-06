@@ -11,7 +11,6 @@ const common_1 = require("@nestjs/common");
 const stream_controller_1 = require("./stream.controller");
 const stream_service_1 = require("./stream.service");
 const deepgram_service_1 = require("./deepgram.service");
-const sarvam_service_1 = require("./sarvam.service");
 const stt_factory_service_1 = require("./stt-factory.service");
 const openai_service_1 = require("./openai.service");
 const elevenlabs_service_1 = require("./elevenlabs.service");
@@ -26,7 +25,6 @@ exports.VoiceModule = VoiceModule = __decorate([
         providers: [
             stream_service_1.StreamService,
             deepgram_service_1.DeepgramService,
-            sarvam_service_1.SarvamService,
             stt_factory_service_1.STTFactoryService,
             openai_service_1.OpenAIService,
             elevenlabs_service_1.ElevenLabsService,
