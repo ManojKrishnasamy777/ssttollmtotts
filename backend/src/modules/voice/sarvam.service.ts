@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+// @ts-ignore: 'sarvamai' has no type declarations in this project
 import { SarvamAIClient } from 'sarvamai';
 import { STTService } from './stt.interface';
 
@@ -59,11 +60,11 @@ export class SarvamService implements STTService {
 
         // Try multiple possible paths for Sarvam response
         transcript = responseAny.transcript ||
-                     responseAny.data?.transcript ||
-                     responseAny.text ||
-                     responseAny.data?.text ||
-                     responseAny.results?.[0]?.transcript ||
-                     responseAny.transcription;
+          responseAny.data?.transcript ||
+          responseAny.text ||
+          responseAny.data?.text ||
+          responseAny.results?.[0]?.transcript ||
+          responseAny.transcription;
 
         if (transcript && transcript.trim().length > 0) {
           console.log(`[Sarvam Transcript] **TRANSCRIBED TEXT:** ${transcript}`);

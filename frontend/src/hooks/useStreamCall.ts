@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import streamService from '../service/stream.service';
+import streamService from '../services/stream.service';
 
 export const useStreamCall = () => {
   const [isConnected, setIsConnected] = useState(false);
