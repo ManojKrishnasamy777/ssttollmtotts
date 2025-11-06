@@ -32,25 +32,28 @@ let StreamService = class StreamService {
         const sttService = this.sttFactory.getSTTService();
         const sttConnection = await sttService.createLiveTranscription(async (transcript) => {
             console.log(`[STT] Transcript: "${transcript}"`);
+            const conn = this.connections.get(userId);
+            if (!conn)
+                return;
             eventCallback({
                 type: 'transcript',
                 text: transcript,
             });
-            await this.conversationService.addMessage(conversationId, 'user', transcript);
-            const messages = await this.conversationService.getConversationHistory(conversationId);
-            const aiResponse = await this.openaiService.generateResponse(userId, messages);
-            console.log(`[AI] Response: "${aiResponse}"`);
-            await this.conversationService.addMessage(conversationId, 'assistant', aiResponse);
-            eventCallback({
-                type: 'ai-response',
-                text: aiResponse,
-            });
-            const audioBuffer = await this.elevenlabsService.textToSpeech(aiResponse);
-            console.log(`[TTS] Generated audio: ${audioBuffer.length} bytes`);
-            eventCallback({
-                type: 'audio',
-                data: audioBuffer.toString('base64'),
-            });
+            if (conn.isAISpeaking) {
+                console.log('[Interrupt] User interrupted AI, queuing transcript');
+                conn.pendingTranscripts.push(transcript);
+                if (conn.interruptTimeout) {
+                    clearTimeout(conn.interruptTimeout);
+                }
+                conn.interruptTimeout = setTimeout(async () => {
+                    await this.handleInterrupt(userId);
+                }, 1500);
+                eventCallback({
+                    type: 'ai-interrupted',
+                });
+                return;
+            }
+            await this.processTranscript(userId, transcript);
         }, (error) => {
             console.error('[STT] Error:', error);
             eventCallback({
@@ -65,26 +68,77 @@ let StreamService = class StreamService {
             lastActivityTime: Date.now(),
             eventCallback,
             firstMessageSent: false,
+            isAISpeaking: false,
+            pendingTranscripts: [],
         };
         this.connections.set(userId, connection);
         setTimeout(async () => {
-            if (!connection.firstMessageSent) {
-                const messages = await this.conversationService.getConversationHistory(conversationId);
-                const greeting = await this.openaiService.generateResponse(userId, messages);
-                console.log(`[AI] Initial greeting: "${greeting}"`);
-                await this.conversationService.addMessage(conversationId, 'assistant', greeting);
-                eventCallback({
-                    type: 'ai-response',
-                    text: greeting,
-                });
-                const audioBuffer = await this.elevenlabsService.textToSpeech(greeting);
-                eventCallback({
-                    type: 'audio',
-                    data: audioBuffer.toString('base64'),
-                });
-                connection.firstMessageSent = true;
-            }
+            const conn = this.connections.get(userId);
+            if (!conn || conn.firstMessageSent)
+                return;
+            const messages = await this.conversationService.getConversationHistory(conversationId);
+            const greeting = await this.openaiService.generateResponse(userId, messages);
+            console.log(`[AI] Initial greeting: "${greeting}"`);
+            await this.conversationService.addMessage(conversationId, 'assistant', greeting);
+            eventCallback({
+                type: 'ai-response',
+                text: greeting,
+            });
+            conn.isAISpeaking = true;
+            const audioBuffer = await this.elevenlabsService.textToSpeech(greeting);
+            eventCallback({
+                type: 'audio',
+                data: audioBuffer.toString('base64'),
+            });
+            conn.firstMessageSent = true;
+            setTimeout(() => {
+                const c = this.connections.get(userId);
+                if (c) {
+                    c.isAISpeaking = false;
+                }
+            }, Math.floor(audioBuffer.length / 32));
         }, 500);
+    }
+    async processTranscript(userId, transcript) {
+        const connection = this.connections.get(userId);
+        if (!connection)
+            return;
+        const { conversationId, eventCallback } = connection;
+        await this.conversationService.addMessage(conversationId, 'user', transcript);
+        const messages = await this.conversationService.getConversationHistory(conversationId);
+        const aiResponse = await this.openaiService.generateResponse(userId, messages);
+        console.log(`[AI] Response: "${aiResponse}"`);
+        await this.conversationService.addMessage(conversationId, 'assistant', aiResponse);
+        eventCallback({
+            type: 'ai-response',
+            text: aiResponse,
+        });
+        connection.isAISpeaking = true;
+        const audioBuffer = await this.elevenlabsService.textToSpeech(aiResponse);
+        console.log(`[TTS] Generated audio: ${audioBuffer.length} bytes`);
+        eventCallback({
+            type: 'audio',
+            data: audioBuffer.toString('base64'),
+        });
+        setTimeout(() => {
+            const conn = this.connections.get(userId);
+            if (conn) {
+                conn.isAISpeaking = false;
+            }
+        }, Math.floor(audioBuffer.length / 32));
+    }
+    async handleInterrupt(userId) {
+        const connection = this.connections.get(userId);
+        if (!connection)
+            return;
+        console.log('[Interrupt] Processing user interruption');
+        connection.isAISpeaking = false;
+        if (connection.pendingTranscripts.length === 0)
+            return;
+        const combinedTranscript = connection.pendingTranscripts.join(' ');
+        connection.pendingTranscripts = [];
+        console.log(`[Interrupt] Processing combined transcript: "${combinedTranscript}"`);
+        await this.processTranscript(userId, combinedTranscript);
     }
     async processAudio(userId, audioData) {
         const connection = this.connections.get(userId);
