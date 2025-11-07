@@ -11,7 +11,8 @@
    You need to obtain API keys from:
    - **Deepgram**: https://deepgram.com (for Speech-to-Text - default)
    - **Sarvam AI**: https://sarvam.ai (for Speech-to-Text - alternative)
-   - **OpenAI**: https://platform.openai.com (for LLM)
+   - **OpenAI**: https://platform.openai.com (for LLM - default)
+   - **Google Gemini**: https://ai.google.dev (for LLM - alternative)
    - **ElevenLabs**: https://elevenlabs.io (for Text-to-Speech)
 
 ## Installation
@@ -44,8 +45,14 @@
    # Sarvam AI API (if using Sarvam)
    SARVAM_API_KEY=your_sarvam_api_key
 
-   # OpenAI API
+   # LLM Provider (choose one: 'openai' or 'gemini')
+   LLM_PROVIDER=openai
+
+   # OpenAI API (if using OpenAI)
    OPENAI_API_KEY=your_openai_api_key
+
+   # Google Gemini API (if using Gemini)
+   GEMINI_API_KEY=your_gemini_api_key
 
    # ElevenLabs API
    ELEVENLABS_API_KEY=your_elevenlabs_api_key
@@ -58,6 +65,10 @@
    **To switch between STT providers:**
    - Set `STT_PROVIDER=deepgram` to use Deepgram
    - Set `STT_PROVIDER=sarvam` to use Sarvam AI
+
+   **To switch between LLM providers:**
+   - Set `LLM_PROVIDER=openai` to use OpenAI GPT
+   - Set `LLM_PROVIDER=gemini` to use Google Gemini
 
 ## Running the Application
 
@@ -95,7 +106,7 @@
 - **Backend (NestJS)**
   - WebSocket gateway for real-time communication
   - Switchable STT providers (Deepgram or Sarvam AI)
-  - OpenAI integration for AI responses
+  - Switchable LLM providers (OpenAI or Google Gemini)
   - ElevenLabs integration for text-to-speech
   - PostgreSQL for conversation storage
 

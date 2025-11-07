@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { STTFactoryService } from './stt-factory.service';
-import { OpenAIService } from './openai.service';
+import { LLMFactoryService } from './llm-factory.service';
 import { ElevenLabsService } from './elevenlabs.service';
 import { ConversationService } from '../conversation/conversation.service';
 
@@ -20,7 +20,7 @@ export class StreamService {
 
   constructor(
     private sttFactory: STTFactoryService,
-    private openaiService: OpenAIService,
+    private llmFactory: LLMFactoryService,
     private elevenlabsService: ElevenLabsService,
     private conversationService: ConversationService,
   ) {
@@ -47,7 +47,8 @@ export class StreamService {
         await this.conversationService.addMessage(conversationId, 'user', transcript);
 
         const messages = await this.conversationService.getConversationHistory(conversationId);
-        const aiResponse = await this.openaiService.generateResponse(userId, messages);
+        const llmService = this.llmFactory.getLLMService();
+        const aiResponse = await llmService.generateResponse(userId, messages);
 
         console.log(`[AI] Response: "${aiResponse}"`);
 
@@ -90,7 +91,8 @@ export class StreamService {
     setTimeout(async () => {
       if (!connection.firstMessageSent) {
         const messages = await this.conversationService.getConversationHistory(conversationId);
-        const greeting = await this.openaiService.generateResponse(userId, messages);
+        const llmService = this.llmFactory.getLLMService();
+        const greeting = await llmService.generateResponse(userId, messages);
 
         console.log(`[AI] Initial greeting: "${greeting}"`);
 

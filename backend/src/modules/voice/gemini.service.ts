@@ -1,12 +1,11 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import OpenAI from 'openai';
+import axios from 'axios';
 import { LLMService } from './llm.interface';
 
 @Injectable()
-export class OpenAIService implements LLMService {
-  private openai: OpenAI;
-  // Store conversation history per user (keyed by userId)
+export class GeminiService implements LLMService {
+  private apiKey: string;
   private userConversations: Record<string, Array<{ role: string; content: string }>> = {};
 
   private firstMessageVariants = [
@@ -17,16 +16,37 @@ export class OpenAIService implements LLMService {
   ];
 
   constructor(private configService: ConfigService) {
-    const apiKey = this.configService.get('OPENAI_API_KEY');
-    console.log('Initializing OpenAI client. API Key:', apiKey ? 'FOUND' : 'MISSING');
-
-    this.openai = new OpenAI({ apiKey });
-
+    const apiKey = this.configService.get('GEMINI_API_KEY');
+    console.log('Initializing Gemini client. API Key:', apiKey ? 'FOUND' : 'MISSING');
+    this.apiKey = apiKey;
   }
 
   private getRandomFirstMessage(companyName: string) {
     const index = Math.floor(Math.random() * this.firstMessageVariants.length);
     return { role: 'assistant', content: this.firstMessageVariants[index](companyName) };
+  }
+
+  private convertMessagesToGeminiFormat(messages: Array<{ role: string; content: string }>) {
+    let systemPrompt = '';
+    const conversationHistory: Array<{ role: string; parts: Array<{ text: string }> }> = [];
+
+    for (const msg of messages) {
+      if (msg.role === 'system') {
+        systemPrompt = msg.content;
+      } else if (msg.role === 'user') {
+        conversationHistory.push({
+          role: 'user',
+          parts: [{ text: msg.content }],
+        });
+      } else if (msg.role === 'assistant') {
+        conversationHistory.push({
+          role: 'model',
+          parts: [{ text: msg.content }],
+        });
+      }
+    }
+
+    return { systemPrompt, conversationHistory };
   }
 
   async generateResponse(
@@ -36,17 +56,16 @@ export class OpenAIService implements LLMService {
   ): Promise<string> {
     const companyName = this.configService.get('COMPANY_NAME') || 'Our Company';
 
-    // Initialize conversation for this user if not exists
     if (!this.userConversations[userId]) {
       const systemPrompt = {
         role: 'system',
         content: `
-You are being used as a Large Language Model (LLM) in a voice bot that qualifies leads. Act as Shreya, a 24-year-old Indian woman who knows Tamil primarily and speaks basic English, and a retail sales expert trained in popular sales frameworks, adapted for the Indian market. You are working for The Chennai Mobiles, a reputed retail chain that sells electronics like smartphones, home appliances, and furniture. Your job is to cold call people around ஆவடி, excite them about the Diwali offers, and persuade them to visit the store at ஆவடி like an expert. Use category expertise to sound like a seasoned retail advisor who understands the customer’s unspoken concerns. Make the user feel they’re talking to someone 10 steps ahead of them. Use product knowledge naturally — model comparisons, build quality, features, warranty, energy rating, after-sales service, and usage fit. Guide with confidence on offers, durability, maintenance, and space suitability.
+You are being used as a Large Language Model (LLM) in a voice bot that qualifies leads. Act as Shreya, a 24-year-old Indian woman who knows Tamil primarily and speaks basic English, and a retail sales expert trained in popular sales frameworks, adapted for the Indian market. You are working for The Chennai Mobiles, a reputed retail chain that sells electronics like smartphones, home appliances, and furniture. Your job is to cold call people around ஆவடி, excite them about the Diwali offers, and persuade them to visit the store at ஆவடி like an expert. Use category expertise to sound like a seasoned retail advisor who understands the customer's unspoken concerns. Make the user feel they're talking to someone 10 steps ahead of them. Use product knowledge naturally — model comparisons, build quality, features, warranty, energy rating, after-sales service, and usage fit. Guide with confidence on offers, durability, maintenance, and space suitability.
 
 You must strictly follow these guidelines while responding:
 
 Language Style Rule (MUST Strictly Follow):
-Speak in Tanglish. Avoid formal or bookish Tamil. Keep it friendly and easy to follow. 
+Speak in Tanglish. Avoid formal or bookish Tamil. Keep it friendly and easy to follow.
 🔹 Tamil words → Tamil script
 🔹 English words → Latin script
 Always write Tamil words in Tamil script & English words in Latin script — even if transcription contains Tamil words in English.
@@ -54,15 +73,15 @@ Strictly do NOT change English terms into Tamil script.
 ✅ Reply in English, if user's response is entirely in English language or asks to speak in English. Otherwise default to Tanglish.
 
 Speech Guidelines:
-❗When speaking in English: Always speak in very simple, clear English like how people in Chennai speak using short sentences and common words — as if talking to someone with basic English fluency. (e.g., “this area is very nearby only”) 
-❌ Avoid casual openers (like “Hey...”, "Just a heads up..")
-❌ Do NOT say “sir” or “ma'am.”
+❗When speaking in English: Always speak in very simple, clear English like how people in Chennai speak using short sentences and common words — as if talking to someone with basic English fluency. (e.g., "this area is very nearby only")
+❌ Avoid casual openers (like "Hey...", "Just a heads up..")
+❌ Do NOT say "sir" or "ma'am."
 ✔ Speak in warm, polite and respectful tone. Keep responses natural and concise, like a real person.
-✔ Insert natural filler words like “umm,” “you know,” “hmm,” "uhh," “like,” “I mean” in the middle of your sentences where a person might naturally pause or think.
+✔ Insert natural filler words like "umm," "you know," "hmm," "uhh," "like," "I mean" in the middle of your sentences where a person might naturally pause or think.
 ✔ Strictly avoid using ellipses, asterisks, em dashes, and special characters in output responses unless instructed explicitly, because it's spoken directly.
-✔ Always output numbers, time, and dates in a speakable format. 
+✔ Always output numbers, time, and dates in a speakable format.
 For example:
-Numbers: 2400 → two thousand four hundred 
+Numbers: 2400 → two thousand four hundred
 Time: 8:30 am → eight thirty a-m
 Date: 23/11/2025 → november twenty-third, twenty twenty-five
 
@@ -98,36 +117,57 @@ Never output Tamil words in English script. Always write Tamil words in Tamil sc
       }
     }
 
-
-    // Add user messages to their conversation
     if (messages.length > 0) {
       this.userConversations[userId].push(...messages);
     }
 
-    console.log(`Sending conversation for user ${userId} to OpenAI:`, this.userConversations[userId]);
+    console.log(`Sending conversation for user ${userId} to Gemini`);
 
     try {
-      const response = await this.openai.chat.completions.create({
-        model: 'gpt-5',
-        messages: this.userConversations[userId] as any,
-        max_tokens: 150,
-        temperature: 0.9,
-        presence_penalty: 0.6,
-        frequency_penalty: 0.3,
-      });
+      const { systemPrompt, conversationHistory } = this.convertMessagesToGeminiFormat(
+        this.userConversations[userId]
+      );
 
-      const content = response.choices[0]?.message?.content;
+      const response = await axios.post(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${this.apiKey}`,
+        {
+          system_instruction: {
+            parts: [{ text: systemPrompt }],
+          },
+          contents: conversationHistory,
+          generationConfig: {
+            temperature: 0.9,
+            maxOutputTokens: 150,
+            topP: 0.95,
+          },
+        },
+        {
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        }
+      );
+
+      const content = response.data?.candidates?.[0]?.content?.parts?.[0]?.text;
+
       if (content) {
         this.userConversations[userId].push({ role: 'assistant', content });
-        console.log(`OpenAI response for user ${userId}:`, content);
+        console.log(`Gemini response for user ${userId}:`, content);
         return content;
       } else {
-        console.warn(`OpenAI response did not contain content for user ${userId}`);
+        console.warn(`Gemini response did not contain content for user ${userId}`);
         return 'I apologize, I could not generate a response.';
       }
-
     } catch (error) {
-      console.error(`OpenAI error for user ${userId}:`, error);
+      if (axios.isAxiosError(error)) {
+        console.error(`Gemini error for user ${userId}:`, {
+          message: error.message,
+          status: error.response?.status,
+          data: error.response?.data,
+        });
+      } else {
+        console.error(`Gemini error for user ${userId}:`, error);
+      }
       throw error;
     }
   }
